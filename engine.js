@@ -132,7 +132,7 @@ const scoringKey = () => SCORING_KEYS.map(k => SC()[k]).join(',');
 // ---------- stat model ----------
 // Each player has a few traits: QB mobility, RB pass-catching role, kick/punt returner.
 function traitsOf(p) {
-  return { mob: p && p.mob != null ? p.mob : 0.35, recv: p && p.recv != null ? p.recv : 0.5, ret: !!(p && p.ret) };
+  return { mob: p && p.mob != null ? p.mob : 0.35, recv: p && p.recv != null ? p.recv : 0.5, ret: !!(p && p.ret), vol: 1 + capBoost(p), tdm: teamTdMult(p) };
 }
 // Expected per-game stat line for a player of this position/rating/traits.
 function statMeans(pos, ovr, t) {
@@ -149,6 +149,8 @@ function statMeans(pos, ovr, t) {
   } else {
     Object.assign(m, { tg: 2.5 + 7 * q, ctch: 0.66 + 0.06 * q, ypr: 9.5 + 2 * q, tdr: 0.08, fl: 0.04 });
   }
+  const v = t.vol || 1, td = t.tdm || 1; // draft-capital role and NFL offense quality
+  m.pa *= 1 + (v - 1) * 0.5; m.ra *= v; m.tg *= v; m.ptd *= td; m.rtd *= td; m.tdr *= td;
   return m;
 }
 const RET = { kra: 2.2, kryPer: 23, pra: 1.8, pryPer: 9, td: 0.02 };
@@ -172,7 +174,7 @@ function ppg(ovr, pos, p) {
   if (S.b100c && rcy) pts += S.b100c * normTail(rcy, 100, rcy * 0.45 + 12);
   return pts;
 }
-const proj = p => (p.inj > 0 ? 0 : ppg(p.ovr, p.pos, p));
+const proj = p => (p.inj > 0 || onBye(p) ? 0 : ppg(p.ovr, p.pos, p));
 const fullName = p => p.first + ' ' + p.last;
 
 function poisson(l) {
@@ -515,7 +517,7 @@ function assetName(a) {
 const elig = (pos, slot) => (slot === 'FLEX' ? !!FLEX_OK[pos] : pos === slot);
 
 function bestLineup(t) {
-  const avail = t.roster.map(P).filter(p => p && p.inj === 0).sort((a, b) => proj(b) - proj(a));
+  const avail = t.roster.map(P).filter(p => p && p.inj === 0 && !onBye(p)).sort((a, b) => proj(b) - proj(a));
   const used = new Set();
   return SLOTS.map(s => {
     const p = avail.find(x => !used.has(x.id) && elig(x.pos, s));
@@ -640,9 +642,21 @@ function newLeague({ teamName = 'My Team', numTeams = 10, difficulty = 'normal',
       .slice(Math.round(counts[pos] * numTeams)).forEach(p => delete L.players[p.id]);
   });
   for (let y = 1; y <= C.FUTURE_YEARS; y++) createPicks(L.year + y);
+  vetDraftHistory();
+  newNflSeason(L.year);
   setupStartupDraft();
   news(`Welcome to the ${L.year} startup draft! ${numTeams} teams, ${C.STARTUP_ROUNDS} rounds, snake order.`, 'big');
   return L;
+}
+
+// give generated veterans a plausible NFL draft slot (better prospects went earlier)
+function vetDraftHistory() {
+  const vets = Object.values(L.players).filter(p => !p.nflDraft);
+  const k = new Map(vets.map(p => [p, p.pot + gauss(0, 7)]));
+  vets.sort((a, b) => k.get(b) - k.get(a)).forEach((p, i) => {
+    const o = Math.max(1, Math.round(300 * Math.pow((i + 0.5) / vets.length, 1.15)));
+    p.nflDraft = o <= NFL_PICKS ? { year: p.rookieYear, round: Math.ceil(o / 32), pick: (o - 1) % 32 + 1, overall: o, team: pick(NFL_ABBRS) } : { year: p.rookieYear, udfa: true, team: pick(NFL_ABBRS) };
+  });
 }
 
 function createPicks(year) {
@@ -812,6 +826,262 @@ function lineupScore(t, week) {
 }
 
 
+// ---------- the NFL season, simulated in parallel ----------
+// 32 teams, real divisions, a real-format 17-game / 18-week schedule with byes. NFL standings
+// set the NFL draft order, and where a rookie is drafted (draft capital) shapes his early role.
+const NFL_DIVS = {
+  'AFC East': ['BUF', 'MIA', 'NE', 'NYJ'], 'AFC North': ['BAL', 'CIN', 'CLE', 'PIT'],
+  'AFC South': ['HOU', 'IND', 'JAX', 'TEN'], 'AFC West': ['DEN', 'KC', 'LV', 'LAC'],
+  'NFC East': ['DAL', 'NYG', 'PHI', 'WAS'], 'NFC North': ['CHI', 'DET', 'GB', 'MIN'],
+  'NFC South': ['ATL', 'CAR', 'NO', 'TB'], 'NFC West': ['ARI', 'LAR', 'SF', 'SEA'],
+};
+const DIV_NAMES = Object.keys(NFL_DIVS);
+const DIV_OF = {};
+DIV_NAMES.forEach(d => NFL_DIVS[d].forEach(a => { DIV_OF[a] = d; }));
+const CONF_OF = a => DIV_OF[a].slice(0, 3);
+const NFL_WEEKS = 18, NFL_PICKS = 224;
+const NFL_ROUNDS = ['Wild Card', 'Divisional', 'Conference', 'Super Bowl'];
+
+// the 272 games: 6 division, 4+4 rotating division matchups, 2 same-place conference games, 1 cross-conference "17th game"
+function nflMatchups(y, place) {
+  const games = [];
+  const add = (a, b) => games.push(Math.random() < 0.5 ? [a, b] : [b, a]); // [home, away]
+  const byPlace = d => NFL_DIVS[d].slice().sort((a, b) => place[a] - place[b]);
+  DIV_NAMES.forEach(d => {
+    const t = NFL_DIVS[d];
+    for (let i = 0; i < 4; i++) for (let j = i + 1; j < 4; j++) { games.push([t[i], t[j]]); games.push([t[j], t[i]]); }
+  });
+  const pairs = [[[0, 1], [2, 3]], [[0, 2], [1, 3]], [[0, 3], [1, 2]]][y % 3];
+  ['AFC', 'NFC'].forEach(c => {
+    const ds = DIV_NAMES.filter(d => d.startsWith(c));
+    pairs.forEach(([i, j]) => NFL_DIVS[ds[i]].forEach(a => NFL_DIVS[ds[j]].forEach(b => add(a, b))));
+    pairs[0].forEach(i => pairs[1].forEach(k => {
+      const A = byPlace(ds[i]), B = byPlace(ds[k]);
+      for (let r = 0; r < 4; r++) add(A[r], B[r]);
+    }));
+  });
+  const afc = DIV_NAMES.filter(d => d.startsWith('AFC')), nfc = DIV_NAMES.filter(d => d.startsWith('NFC'));
+  afc.forEach((d, i) => {
+    NFL_DIVS[d].forEach(a => NFL_DIVS[nfc[(i + y) % 4]].forEach(b => add(a, b)));
+    const A = byPlace(d), B = byPlace(nfc[(i + y + 2) % 4]);
+    for (let r = 0; r < 4; r++) games.push(y % 2 ? [A[r], B[r]] : [B[r], A[r]]);
+  });
+  return games;
+}
+
+// one week = a perfect matching of the teams not on bye, using games still unscheduled
+function weekMatching(avail, rem, budget) {
+  const opts = {};
+  avail.forEach(a => { opts[a] = []; });
+  rem.forEach((g, i) => { if (opts[g[0]] && opts[g[1]]) { opts[g[0]].push(i); opts[g[1]].push(i); } });
+  const used = new Set(), done = new Set(), out = [];
+  let steps = 0;
+  const go = () => {
+    if (++steps > budget) return false;
+    let best = null, bo = null;
+    for (const a of avail) {
+      if (done.has(a)) continue;
+      const o = opts[a].filter(i => !used.has(i) && !done.has(rem[i][0] === a ? rem[i][1] : rem[i][0]));
+      if (!o.length) return false;
+      if (!bo || o.length < bo.length) { best = a; bo = o; }
+    }
+    if (best == null) return true;
+    for (const i of shuffle(bo)) {
+      const o = rem[i][0] === best ? rem[i][1] : rem[i][0];
+      used.add(i); done.add(best); done.add(o); out.push(i);
+      if (go()) return true;
+      used.delete(i); done.delete(best); done.delete(o); out.pop();
+    }
+    return false;
+  };
+  return go() ? out : null;
+}
+
+function nflBuildSchedule(y, place) {
+  for (let attempt = 0; attempt < 400; attempt++) {
+    const games = nflMatchups(y, place);
+    // byes in weeks 5-14, an even number of teams each week
+    const cnt = {};
+    for (let w = 5; w <= 14; w++) cnt[w] = 2;
+    for (let k = 0; k < 6; k++) { let w; do { w = ri(5, 14); } while (cnt[w] >= 6); cnt[w] += 2; }
+    const teams = shuffle(NFL_ABBRS.slice()), bye = {};
+    let ti = 0;
+    for (let w = 5; w <= 14; w++) for (let k = 0; k < cnt[w]; k++) bye[teams[ti++]] = w;
+    let rem = games.slice();
+    const sched = [];
+    let ok = true;
+    for (let w = 1; w <= NFL_WEEKS && ok; w++) {
+      const avail = NFL_ABBRS.filter(a => bye[a] !== w);
+      const m = weekMatching(avail, rem, 4000);
+      if (!m) { ok = false; break; }
+      sched.push(m.map(i => rem[i]));
+      const mset = new Set(m);
+      rem = rem.filter((g, i) => !mset.has(i));
+    }
+    if (ok) return { sched, bye };
+  }
+  throw new Error('NFL schedule generation failed');
+}
+
+const nflRec0 = () => ({ w: 0, l: 0, t: 0, pf: 0, pa: 0, dw: 0, dl: 0, dt: 0, cw: 0, cl: 0, ct: 0 });
+function newNflSeason(year) {
+  const prev = L.nfl;
+  const base = {}, place = {};
+  NFL_ABBRS.forEach(a => { base[a] = prev && prev.base ? +(0.55 * prev.base[a] + gauss(0, 3)).toFixed(2) : +gauss(0, 4).toFixed(2); });
+  if (prev && prev.st) DIV_NAMES.forEach(d => nflSortDiv(NFL_DIVS[d].slice(), prev.st).forEach((a, i) => { place[a] = i; }));
+  else DIV_NAMES.forEach(d => shuffle(NFL_DIVS[d].slice()).forEach((a, i) => { place[a] = i; }));
+  const { sched, bye } = nflBuildSchedule(year, place);
+  const st = {};
+  NFL_ABBRS.forEach(a => { st[a] = nflRec0(); });
+  L.nfl = { year, sched, bye, res: [], st, base, place, week: 0, po: null };
+}
+
+const nflPct = s => (s.w + 0.5 * s.t) / Math.max(1, s.w + s.l + s.t);
+const nflDPct = s => (s.dw + 0.5 * s.dt) / Math.max(1, s.dw + s.dl + s.dt);
+const nflCPct = s => (s.cw + 0.5 * s.ct) / Math.max(1, s.cw + s.cl + s.ct);
+function nflSortDiv(list, st = L.nfl.st) {
+  return list.sort((a, b) => nflPct(st[b]) - nflPct(st[a]) || nflDPct(st[b]) - nflDPct(st[a]) || nflCPct(st[b]) - nflCPct(st[a])
+    || (st[b].pf - st[b].pa) - (st[a].pf - st[a].pa) || a.localeCompare(b));
+}
+function nflSort(list, st = L.nfl.st) {
+  return list.sort((a, b) => nflPct(st[b]) - nflPct(st[a]) || nflCPct(st[b]) - nflCPct(st[a])
+    || (st[b].pf - st[b].pa) - (st[a].pf - st[a].pa) || a.localeCompare(b));
+}
+
+// team strength: hidden team quality + the health and talent of its fantasy-relevant players
+function nflStrength(abbr, byTeam) {
+  const ps = byTeam[abbr] || [];
+  const qb = ps.filter(p => p.pos === 'QB').sort((a, b) => b.ovr - a.ovr)[0];
+  const sk = ps.filter(p => p.pos !== 'QB').map(p => p.ovr).sort((a, b) => b - a).slice(0, 3);
+  return L.nfl.base[abbr] + ((qb ? qb.ovr : 48) - 62) * 0.14 + sum(sk.map(o => (o - 60) * 0.03));
+}
+function nflHealthyByTeam() {
+  const m = {};
+  Object.values(L.players).forEach(p => { if (!p.retired && p.inj === 0 && p.nfl && p.revealed) (m[p.nfl] = m[p.nfl] || []).push(p); });
+  return m;
+}
+const NFL_SCORES = [0, 3, 6, 7, 9, 10, 13, 14, 16, 17, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 44, 45, 48, 49, 52, 55];
+const nflPts = x => NFL_SCORES.reduce((b, s) => (Math.abs(s - x) < Math.abs(b - x) ? s : b), 0);
+function playNfl(h, a, byTeam, neutral, playoff) {
+  const d = nflStrength(h, byTeam) - nflStrength(a, byTeam) + (neutral ? 0 : 1.8);
+  let hs = nflPts(gauss(22 + d / 2, 9)), as = nflPts(gauss(22 - d / 2, 9));
+  if (hs === as && (playoff || Math.random() < 0.9)) { // overtime
+    if (Math.random() < clamp(0.5 + d * 0.03, 0.2, 0.8)) hs += pick([3, 3, 6]); else as += pick([3, 3, 6]);
+  }
+  return { h, a, hs, as };
+}
+function simNflWeek(w) {
+  const N_ = L.nfl, byTeam = nflHealthyByTeam();
+  const res = (N_.sched[w - 1] || []).map(([h, a]) => playNfl(h, a, byTeam));
+  res.forEach(g => {
+    const sh = N_.st[g.h], sa = N_.st[g.a];
+    const div = DIV_OF[g.h] === DIV_OF[g.a], conf = CONF_OF(g.h) === CONF_OF(g.a);
+    sh.pf += g.hs; sh.pa += g.as; sa.pf += g.as; sa.pa += g.hs;
+    const r = g.hs > g.as ? ['w', 'l'] : g.hs < g.as ? ['l', 'w'] : ['t', 't'];
+    sh[r[0]]++; sa[r[1]]++;
+    if (div) { sh['d' + r[0]]++; sa['d' + r[1]]++; }
+    if (conf) { sh['c' + r[0]]++; sa['c' + r[1]]++; }
+  });
+  N_.res[w - 1] = res;
+  N_.week = w;
+}
+function nflSeeds(c) {
+  const divs = DIV_NAMES.filter(d => d.startsWith(c));
+  const winners = nflSort(divs.map(d => nflSortDiv(NFL_DIVS[d].slice())[0]));
+  const wc = nflSort(NFL_ABBRS.filter(a => CONF_OF(a) === c && !winners.includes(a))).slice(0, 3);
+  return winners.concat(wc);
+}
+// remaining regular-season weeks, playoffs, and next year's NFL draft order
+function finishNflSeason() {
+  const N_ = L.nfl;
+  if (!N_ || N_.po) return;
+  for (let w = N_.week + 1; w <= NFL_WEEKS; w++) simNflWeek(w);
+  const byTeam = nflHealthyByTeam();
+  const seeds = { AFC: nflSeeds('AFC'), NFC: nflSeeds('NFC') };
+  const seedOf = a => seeds[CONF_OF(a)].indexOf(a);
+  const elim = {}, rounds = [];
+  const play = (h, a, neutral) => { const g = playNfl(h, a, byTeam, neutral, true); g.win = g.hs > g.as ? h : a; elim[g.win === h ? a : h] = rounds.length; return g; };
+  let alive = { AFC: seeds.AFC.slice(), NFC: seeds.NFC.slice() };
+  // wild card: 2v7, 3v6, 4v5 (the #1 seed has a bye)
+  rounds.push(['AFC', 'NFC'].flatMap(c => [[1, 6], [2, 5], [3, 4]].map(([x, y]) => play(seeds[c][x], seeds[c][y]))));
+  ['AFC', 'NFC'].forEach(c => { alive[c] = alive[c].filter(a => elim[a] == null).sort((a, b) => seedOf(a) - seedOf(b)); });
+  rounds.push(['AFC', 'NFC'].flatMap(c => { const s = alive[c]; return [play(s[0], s[3]), play(s[1], s[2])]; }));
+  ['AFC', 'NFC'].forEach(c => { alive[c] = alive[c].filter(a => elim[a] == null).sort((a, b) => seedOf(a) - seedOf(b)); });
+  rounds.push(['AFC', 'NFC'].map(c => play(alive[c][0], alive[c][1])));
+  const sb = play(rounds[2][0].win, rounds[2][1].win, true);
+  rounds.push([sb]);
+  N_.po = { seeds, rounds, champ: sb.win, ru: sb.win === sb.h ? sb.a : sb.h };
+  // draft order: non-playoff teams worst to best, then by round eliminated, champion last
+  const worstFirst = list => nflSort(list.slice()).reverse();
+  const inPO = new Set(seeds.AFC.concat(seeds.NFC));
+  let order = worstFirst(NFL_ABBRS.filter(a => !inPO.has(a)));
+  for (let r = 0; r < 4; r++) order = order.concat(worstFirst(NFL_ABBRS.filter(a => elim[a] === r)));
+  order.push(sb.win);
+  L.nflOrders = L.nflOrders || {};
+  L.nflOrders[N_.year + 1] = order;
+  L.nflHist = L.nflHist || [];
+  L.nflHist.push({ year: N_.year, champ: sb.win, ru: N_.po.ru, score: [sb.hs, sb.as], first: order[0], best: nflSort(NFL_ABBRS.slice())[0] });
+  news(`🏈 NFL: the ${NFL[sb.win]} win the Super Bowl, ${Math.max(sb.hs, sb.as)}–${Math.min(sb.hs, sb.as)} over the ${NFL[N_.po.ru]}. The ${NFL[order[0]]} (${N_.st[order[0]].w}-${N_.st[order[0]].l}) hold the #1 pick in the ${N_.year + 1} NFL Draft.`, 'big');
+}
+
+// NFL draft: the real teams pick the fantasy-relevant rookies, in standings order.
+// NFL scouts see true talent better than fantasy scouts, so draft capital is a real signal.
+function nflDraft(year) {
+  const order = (L.nflOrders && L.nflOrders[year]) || shuffle(NFL_ABBRS.slice());
+  const rookies = Object.values(L.players).filter(p => p.rookieYear === year && !p.revealed && !p.nflDraft);
+  const adj = { QB: 4, RB: -2, WR: 0, TE: -3 };
+  const nv = new Map(rookies.map(p => [p, p.pot + 0.15 * (p.ovr - p.pot) + adj[p.pos] + gauss(0, 5)]));
+  rookies.sort((a, b) => nv.get(b) - nv.get(a));
+  const slots = rookies.map(() => Math.max(1, Math.round(300 * Math.pow(Math.random(), 1.15)))).sort((a, b) => a - b);
+  for (let i = 1; i < slots.length; i++) if (slots[i] <= slots[i - 1]) slots[i] = slots[i - 1] + 1;
+  rookies.forEach((p, i) => {
+    const o = slots[i];
+    if (o <= NFL_PICKS) {
+      const pk = (o - 1) % 32 + 1;
+      p.nflDraft = { year, round: Math.ceil(o / 32), pick: pk, overall: o, team: order[pk - 1] };
+    } else p.nflDraft = { year, udfa: true, team: pick(order.slice(0, 20)) };
+    p.nfl = p.nflDraft.team;
+  });
+  const r1 = rookies.filter(p => p.nflDraft.round === 1);
+  if (rookies.length) news(`🏈 ${year} NFL Draft: ${r1.length} skill players went in round 1${r1[0] ? `, led by ${r1[0].pos} ${fullName(r1[0])} (#${r1[0].nflDraft.overall}, ${r1[0].nfl})` : ''}.`, 'big');
+}
+
+// draft capital: a high pick gets a bigger early role; it fades over a player's first 3 seasons
+function capBoost(p) {
+  const d = p && p.nflDraft;
+  if (!d || !L) return 0;
+  const b = d.udfa ? -0.1 : d.round === 1 ? (d.pick <= 10 ? 0.1 : 0.07) : d.round === 2 ? 0.035 : d.round === 3 ? 0 : d.round <= 5 ? -0.04 : -0.07;
+  return b * Math.max(0, 3 - (L.year - d.year)) / 3;
+}
+// the player's NFL offense: better offenses score more touchdowns
+function teamTdMult(p) {
+  if (!p || !L || !L.nfl || !L.nfl.base || !p.nfl) return 1;
+  return 1 + clamp(L.nfl.base[p.nfl] * 0.012, -0.08, 0.08);
+}
+const byeWeek = abbr => (L && L.nfl && L.nfl.year === L.year ? L.nfl.bye[abbr] : null);
+const onBye = (p, w) => !!(L && (L.phase === 'regular' || L.phase === 'playoffs') && p && byeWeek(p.nfl) === (w == null ? L.week : w));
+
+// swap injured / bye-week starters for the best healthy bench players
+function autoSub(teamId) {
+  const t = T(teamId == null ? L.userId : teamId);
+  sanitizeLineup(t);
+  const out = p => p.inj > 0 || onBye(p);
+  const starters = new Set(t.lineup.filter(x => x != null));
+  const bench = t.roster.map(P).filter(p => p && !starters.has(p.id) && !out(p)).sort((a, b) => proj(b) - proj(a));
+  const swaps = [];
+  const idx = SLOTS.map((s, i) => i).sort((a, b) => (SLOTS[a] === 'FLEX') - (SLOTS[b] === 'FLEX'));
+  idx.forEach(i => {
+    const p = t.lineup[i] != null ? P(t.lineup[i]) : null;
+    if (p && !out(p)) return;
+    const sub = bench.find(b => elig(b.pos, SLOTS[i]));
+    if (!sub) { if (p) swaps.push({ slot: SLOTS[i], out: p.id, in: null, why: p.inj > 0 ? 'injured' : 'bye' }); return; }
+    bench.splice(bench.indexOf(sub), 1);
+    t.lineup[i] = sub.id;
+    swaps.push({ slot: SLOTS[i], out: p ? p.id : null, in: sub.id, why: p ? (p.inj > 0 ? 'injured' : 'bye') : 'empty' });
+  });
+  return swaps;
+}
+
 // ---------- record book ----------
 const REC_N = 10;
 const REC_CATS = [
@@ -946,10 +1216,12 @@ function simWeek() {
     else sanitizeLineup(t);
   });
   // simulate every active player's box score and score it with the league settings
+  if (L.nfl && L.nfl.year === L.year && L.nfl.week < w && w <= NFL_WEEKS) simNflWeek(w);
   const S = SC();
   Object.values(L.players).forEach(p => {
     if (p.retired) return;
     if (!p.st) p.st = [];
+    if (onBye(p, w)) { p.wk[w - 1] = null; p.st[w - 1] = null; if (p.inj > 0) { p.inj--; if (!p.inj) p.injury = null; } return; }
     if (p.inj > 0) { p.wk[w - 1] = null; p.st[w - 1] = null; p.inj--; if (!p.inj) p.injury = null; return; }
     const hurt = Math.random() < INJ_RATE[p.pos];
     const st = genStats(p, hurt ? rnd(0.1, 0.7) : 1); // injured players leave the game early
@@ -970,7 +1242,7 @@ function simWeek() {
       if (id == null) return null;
       const p = P(id);
       const hurt = p.injury && p.injury.year === L.year && p.injury.week === w ? 1 : 0;
-      return [id, p.wk[w - 1], Math.round(ppg(p.ovr, p.pos, p) * 10) / 10, hurt];
+      return [id, p.wk[w - 1], Math.round(ppg(p.ovr, p.pos, p) * 10) / 10, hurt, onBye(p, w) ? 1 : 0];
     });
     const g = { a, b, sa, sb, la: snap(ta), lb: snap(tb), year: L.year };
     recordGame(g, w, L.year).forEach(([k, e]) => {
@@ -1039,6 +1311,7 @@ function startPlayoffs() {
 }
 
 function endSeason() {
+  finishNflSeason();
   const pl = L.playoffs;
   const champ = T(pl.champ), ru = T(pl.runnerUp);
   champ.titles++;
@@ -1103,6 +1376,8 @@ function startOffseason() {
   retiring.forEach(p => retire(p));
   // rookie class
   rookieClassPositions(N() * C.ROOKIE_ROUNDS * 2).forEach(pos => newRookie(pos, L.year));
+  nflDraft(L.year);
+  newNflSeason(L.year);
   setModes();
   setupRookieDraft();
   L.phase = 'draft';
@@ -1317,6 +1592,14 @@ function load(json) {
   if (L) { // migrate older saves
     if (!L.injuryLog) L.injuryLog = [];
     if (!L.rec) initRecords();
+    if (!L.nfl) { // NFL season added in a later version
+      vetDraftHistory();
+      newNflSeason(L.year);
+      if (L.phase === 'regular' || L.phase === 'playoffs') for (let w = 1; w < L.week; w++) simNflWeek(w);
+      else if (L.phase === 'offseason') finishNflSeason();
+      if (L.phase === 'draft') Object.values(L.players).forEach(p => { if (p.rookieYear === L.year && !p.revealed) delete p.nflDraft; });
+      if (L.phase === 'draft') nflDraft(L.year);
+    }
     if (!L.settings.scoring) L.settings.scoring = presetScoring('half');
     Object.values(L.players).forEach(p => {
       if (!p.nfl) p.nfl = pick(NFL_ABBRS);
@@ -1335,6 +1618,7 @@ function load(json) {
 G.Engine = {
   C, POS, SLOTS, PCFG, DIFF, MODE, NFL, INJ_RATE,
   REC_CATS, recordBook,
+  NFL_DIVS, DIV_NAMES, NFL_WEEKS, NFL_ROUNDS, CONF_OF, byeWeek, onBye, autoSub, nflSort, nflSortDiv,
   SCORING_PRESETS, SCORING_KEYS, presetScoring, presetOf, statLine, sumStats, fpts, replLevel,
   setScoring(S) { L.settings.scoring = Object.assign(presetScoring('standard'), S); },
   get L() { return L; },

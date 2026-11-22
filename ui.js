@@ -28,13 +28,16 @@ const val = p => Math.round(E.playerValue(p, 'balanced', 'public'));
 const teamAbbr = id => (id == null ? '<span class="muted">FA</span>' : `<a data-act="team" data-id="${id}"><span class="teamdot" style="background:${E.T(id).color}"></span>${esc(E.T(id).abbr)}</a>`);
 const teamName = id => `<a data-act="team" data-id="${id}"><span class="teamdot" style="background:${E.T(id).color}"></span>${esc(E.T(id).name)}</a>`;
 const pLink = p => `<a data-act="player" data-id="${p.id}">${esc(E.fullName(p))}</a>`;
-const nflTag = p => (p.nfl ? ` <span class="nfl" title="${esc(E.NFL[p.nfl] || p.nfl)}">${p.nfl}</span>` : '');
+const nflTag = p => (p.nfl ? ` <span class="nfl" title="${esc(E.NFL[p.nfl] || p.nfl)}${E.byeWeek(p.nfl) ? ' · bye week ' + E.byeWeek(p.nfl) : ''}">${p.nfl}</span>` : '');
+const capStr = d => (!d ? '' : d.udfa ? 'UDFA' : `${d.round}.${String(d.pick).padStart(2, '0')}`);
+const capTxt = d => (!d ? '' : d.udfa ? `Undrafted free agent (${d.year})` : `${d.year} NFL Draft: round ${d.round}, pick ${d.pick} (#${d.overall} overall)`);
 function statusBadges(p) {
   let s = '';
   if (p.inj > 0) {
     const i = p.injury;
     s += i ? ` <span class="badge inj" title="${esc(i.name)} — ${esc(i.est)}">🚑 ${i.season ? 'IR' : 'OUT ' + esc(i.short)}</span>` : ' <span class="badge inj">OUT</span>';
   }
+  if (E.onBye(p)) s += ' <span class="badge bye">BYE</span>';
   if (p.rookieYear === L().year) s += ' <span class="badge rook">R</span>';
   return s;
 }
@@ -210,6 +213,9 @@ function matchupCard() {
   }).join('');
   const empties = u.lineup.filter(id => id == null).length;
   const injStarters = u.lineup.filter(id => id != null && E.P(id).inj > 0).length;
+  const byeStarters = u.lineup.filter(id => id != null && E.onBye(E.P(id))).length;
+  const byes = Object.keys(E.NFL).filter(a => E.byeWeek(a) === w);
+  const myByes = u.roster.map(E.P).filter(p => E.onBye(p));
   return `<div class="card"><h2>${l.phase === 'playoffs' ? 'Playoff matchup' : `Week ${w} matchup`}</h2>
     <div class="matchup">
       <div><div>${teamName(u.id)}</div><div class="muted">${rec(u)}</div><div class="score">${projOf(u).toFixed(1)}</div><div class="muted">projected</div></div>
@@ -217,7 +223,9 @@ function matchupCard() {
       <div><div>${teamName(ot.id)}</div><div class="muted">${rec(ot)} ${modeBadge(ot.mode)}</div><div class="score">${projOf(ot).toFixed(1)}</div><div class="muted">projected</div></div>
     </div>
     <div class="h2h">${h2h}</div>
-    ${!u.autoLineup && (empties || injStarters) ? `<div class="msg no">⚠ Your lineup has ${empties ? empties + ' empty slot(s)' : ''}${empties && injStarters ? ' and ' : ''}${injStarters ? injStarters + ' injured starter(s)' : ''}. <a data-act="tab" data-tab="roster">Fix lineup</a></div>` : ''}
+    <div class="row" style="margin-top:10px;align-items:center"><button class="${!u.autoLineup && (empties || injStarters || byeStarters) ? 'blue' : ''}" data-act="autoSub">🔄 Auto-sub hurt &amp; bye players</button>
+      <span class="muted" style="font-size:12px">${byes.length ? `NFL byes this week: ${byes.join(', ')}` : 'No NFL byes this week.'}${myByes.length ? ` · yours: ${myByes.map(p => esc(p.last)).join(', ')}` : ''}</span></div>
+    ${!u.autoLineup && (empties || injStarters || byeStarters) ? `<div class="msg no">⚠ Your lineup has ${[empties ? empties + ' empty slot(s)' : '', injStarters ? injStarters + ' injured starter(s)' : '', byeStarters ? byeStarters + ' starter(s) on bye' : ''].filter(Boolean).join(', ')}. Hit Auto-sub or <a data-act="tab" data-tab="roster">fix your lineup</a>.</div>` : ''}
     ${last}</div>`;
 }
 
@@ -282,7 +290,7 @@ function viewRoster() {
     const cur = u.lineup[i];
     const cp = cur != null ? E.P(cur) : null;
     return `<div class="lineup-slot">${posTag(s)}
-      <select data-chg="slot" data-i="${i}"><option value="">— empty —</option>${opts.map(p => `<option value="${p.id}" ${p.id === cur ? 'selected' : ''}>${esc(E.fullName(p))} (${p.pos}${p.inj ? ', OUT' : ''})${starters.has(p.id) && p.id !== cur ? ' *' : ''}</option>`).join('')}</select>
+      <select data-chg="slot" data-i="${i}"><option value="">— empty —</option>${opts.map(p => `<option value="${p.id}" ${p.id === cur ? 'selected' : ''}>${esc(E.fullName(p))} (${p.pos}${p.inj ? ', OUT' : E.onBye(p) ? ', BYE' : ''})${starters.has(p.id) && p.id !== cur ? ' *' : ''}</option>`).join('')}</select>
       <span class="num muted">${cp ? E.proj(cp).toFixed(1) + ' proj' : ''}</span>
       <span class="num">${cp && lastWk > 0 && cp.wk[lastWk - 1] != null ? cp.wk[lastWk - 1].toFixed(1) : ''}</span></div>`;
   }).join('');
@@ -294,7 +302,7 @@ function viewRoster() {
       ${playerTable(roster, { starters, mine: true })}</div>
     <div class="grid">
       <div class="card"><h2>Lineup <span class="r"><label><input type="checkbox" data-chg="auto" ${u.autoLineup ? 'checked' : ''}> auto-set each week</label></span></h2>
-        ${slots}<div class="row" style="margin-top:10px"><button class="sm" data-act="autoNow">Optimize now</button><span class="muted">Projected: <b>${u.lineup.reduce((s, id) => s + (id != null ? E.proj(E.P(id)) : 0), 0).toFixed(1)}</b></span></div></div>
+        ${slots}<div class="row" style="margin-top:10px"><button class="sm" data-act="autoNow">Optimize now</button><button class="sm" data-act="autoSub">🔄 Auto-sub hurt/bye</button><span class="muted">Projected: <b>${u.lineup.reduce((s, id) => s + (id != null ? E.proj(E.P(id)) : 0), 0).toFixed(1)}</b></span></div></div>
       <div class="card"><h2>Draft picks <span class="r">${picks.length}</span></h2>
         ${picks.length ? picks.map(k => `<div class="asset" style="cursor:default"><span class="pos" style="background:#94a3b8">PK</span>${esc(E.pickLabel(k))}<span class="v">${Math.round(E.pickValue(k))}</span></div>`).join('') : '<p class="muted">No picks — you traded them all!</p>'}
       </div>
@@ -415,9 +423,9 @@ function viewDraft() {
         <select data-chg="dpos">${['ALL', ...E.POS].map(k => `<option ${UI.draftPos === k ? 'selected' : ''}>${k}</option>`).join('')}</select>
         <span class="muted">My roster: ${counts}</span>
       </div>
-      ${d.type === 'rookie' ? '<p class="muted" style="font-size:12px">OVR and POT for rookies are scouting estimates. True ratings are revealed when the draft ends.</p>' : ''}
-      <div class="tbl-wrap"><table><thead><tr><th>Pos</th><th>Player</th><th class="num">Age</th><th>College</th><th class="num">OVR</th><th class="num">POT</th><th class="num">Proj</th><th class="num">Value</th><th></th></tr></thead><tbody>
-        ${pool.map(p => `<tr><td>${posTag(p.pos)}</td><td>${pLink(p)}${nflTag(p)}</td><td class="num">${p.age}</td><td class="muted">${esc(p.college)}</td><td class="num">${ovrStr(p)}</td><td class="num">${potStr(p)}</td><td class="num">${projStr(p)}</td><td class="num">${Math.round(pv(p))}</td>
+      ${d.type === 'rookie' ? '<p class="muted" style="font-size:12px">OVR and POT for rookies are scouting estimates. True ratings are revealed when the draft ends. <b>NFL pick</b> is real draft capital: NFL teams scout better than you, and early picks get a bigger role in their first seasons.</p>' : ''}
+      <div class="tbl-wrap"><table><thead><tr><th>Pos</th><th>Player</th><th class="num">Age</th><th>College</th>${d.type === 'rookie' ? '<th class="num" title="NFL draft round.pick">NFL pick</th>' : ''}<th class="num">OVR</th><th class="num">POT</th><th class="num">Proj</th><th class="num">Value</th><th></th></tr></thead><tbody>
+        ${pool.map(p => `<tr><td>${posTag(p.pos)}</td><td>${pLink(p)}${nflTag(p)}</td><td class="num">${p.age}</td><td class="muted">${esc(p.college)}</td>${d.type === 'rookie' ? `<td class="num" title="${esc(capTxt(p.nflDraft))}">${capStr(p.nflDraft)} <span class="muted">${p.nflDraft ? p.nfl : ''}</span></td>` : ''}<td class="num">${ovrStr(p)}</td><td class="num">${potStr(p)}</td><td class="num">${projStr(p)}</td><td class="num">${Math.round(pv(p))}</td>
           <td>${myTurn ? `<button class="sm primary" data-act="draftP" data-id="${p.id}">Draft</button>` : ''}</td></tr>`).join('')}
       </tbody></table></div>
     </div>
@@ -431,13 +439,14 @@ function viewDraft() {
 // ---------- league ----------
 function viewLeague() {
   const l = L();
-  const subs = [['standings', 'Standings'], ['schedule', 'Schedule & Results'], ['playoffs', 'Playoffs'], ['leaders', 'Leaders'], ['records', '🏅 Records'], ['teams', 'Teams'], ['scoring', 'Scoring']];
+  const subs = [['standings', 'Standings'], ['schedule', 'Schedule & Results'], ['playoffs', 'Playoffs'], ['leaders', 'Leaders'], ['records', '🏅 Records'], ['nfl', '🏈 NFL'], ['teams', 'Teams'], ['scoring', 'Scoring']];
   let body = '';
   if (UI.league === 'standings') body = `<div class="card"><h2>Standings</h2>${standingsTable(false)}</div>`;
   else if (UI.league === 'schedule') body = scheduleView();
   else if (UI.league === 'playoffs') body = playoffsView();
   else if (UI.league === 'leaders') body = leadersView();
   else if (UI.league === 'records') body = recordsView();
+  else if (UI.league === 'nfl') body = nflView();
   else if (UI.league === 'scoring') body = `<div class="card"><h2>Scoring settings <span class="r">${esc((E.SCORING_PRESETS[E.presetOf(l.settings.scoring)] || { label: 'Custom' }).label)}</span></h2>${scoringEditable() ? '<p class="muted">Changes apply to all future games. Projections and trade values update immediately.</p>' : '<div class="msg" style="margin-bottom:10px">🔒 Scoring is locked during the season. You can change it in the offseason or preseason.</div>'}${scoringForm(l.settings.scoring, 'league', scoringEditable())}</div>`;
   else body = `<div class="grid g2">${l.teams.map(t => `<div class="card"><h2>${teamName(t.id)} ${t.human ? '<span class="badge">You</span>' : modeBadge(t.mode)}<span class="r">${t.titles ? '🏆×' + t.titles : ''}</span></h2>
       <p class="muted">Power ${E.teamPower(t).toFixed(1)} · Roster ${t.roster.length} · Picks ${l.picks.filter(k => k.ownerId === t.id && !k.used).length}</p>
@@ -478,6 +487,46 @@ function leadersView() {
     const top = all.filter(p => p.pos === pos && (p.revealed || p.teamId != null)).sort((a, b) => metric(b) - metric(a)).slice(0, 10);
     return `<div class="card"><h2>${posTag(pos)} ${hasPts ? 'Fantasy points' : 'Top value'}</h2><table><tbody>${top.map((p, i) => `<tr><td>${i + 1}</td><td>${pLink(p)}${nflTag(p)}${statusBadges(p)}</td><td>${teamAbbr(p.teamId)}</td><td class="num">${hasPts ? E.seasonPts(p).toFixed(1) : Math.round(metric(p))}</td></tr>`).join('')}</tbody></table></div>`;
   }).join('')}</div>`;
+}
+
+// ---------- NFL ----------
+function nflView() {
+  const l = L(), N = l.nfl;
+  if (!N) return '<div class="card"><p class="muted">No NFL season yet.</p></div>';
+  const st = N.st;
+  const r = a => `${st[a].w}-${st[a].l}${st[a].t ? '-' + st[a].t : ''}`;
+  const mine = new Set(user().roster.map(id => E.P(id).nfl));
+  const tm = a => `<span class="nfl ${mine.has(a) ? 'mine' : ''}" title="${esc(E.NFL[a])}">${a}</span>`;
+  const seedOf = a => { if (!N.po) return ''; const s = N.po.seeds[E.CONF_OF(a)].indexOf(a); return s >= 0 ? ` <span class="muted">(${s + 1})</span>` : ''; };
+  const maxW = N.week || 0;
+  if (UI.nflWk == null || UI.nflWk > E.NFL_WEEKS) UI.nflWk = Math.max(1, Math.min(E.NFL_WEEKS, l.phase === 'regular' || l.phase === 'playoffs' ? l.week : maxW || 1));
+  const w = UI.nflWk, res = N.res[w - 1];
+  const games = (N.sched[w - 1] || []).map(([h, a], i) => {
+    const g = res && res[i];
+    const cell = (x, s, win) => `<div class="t ${win ? 'w' : ''}"><span>${tm(x)} <span class="muted">${esc(E.NFL[x])}</span></span><span>${s != null ? s : ''}</span></div>`;
+    return `<div class="bgame">${cell(a, g && g.as, g && g.as > g.hs)}${cell(h, g && g.hs, g && g.hs > g.as)}<div class="muted" style="font-size:11px;text-align:right">@ ${h}</div></div>`;
+  }).join('');
+  const byes = Object.keys(N.bye).filter(a => N.bye[a] === w);
+  const divs = E.DIV_NAMES.map(d => `<div class="card nfl-div"><h4>${d}</h4><table><thead><tr><th>Team</th><th class="num">W-L</th><th class="num">Div</th><th class="num">PF</th><th class="num">PA</th><th class="num">Bye</th></tr></thead><tbody>
+    ${E.nflSortDiv(E.NFL_DIVS[d].slice()).map(a => `<tr class="${mine.has(a) ? 'me' : ''}"><td>${tm(a)}${seedOf(a)}</td><td class="num">${r(a)}</td><td class="num muted">${st[a].dw}-${st[a].dl}</td><td class="num">${st[a].pf}</td><td class="num">${st[a].pa}</td><td class="num muted">${N.bye[a]}</td></tr>`).join('')}</tbody></table></div>`).join('');
+  let po = '';
+  if (N.po) {
+    po = `<div class="card"><h2>${N.year} NFL Playoffs</h2><div class="nfl-po">${N.po.rounds.map((games, ri) => `<div><h4>${E.NFL_ROUNDS[ri]}</h4>${games.map(g => `<div class="bgame"><div class="t ${g.win === g.a ? 'w' : ''}"><span>${tm(g.a)}${seedOf(g.a)}</span><span>${g.as}</span></div><div class="t ${g.win === g.h ? 'w' : ''}"><span>${tm(g.h)}${seedOf(g.h)}</span><span>${g.hs}</span></div></div>`).join('')}</div>`).join('')}</div>
+      <p style="font-size:16px">🏆 <b>${esc(E.NFL[N.po.champ])}</b> win the Super Bowl</p></div>`;
+  }
+  const nextYr = N.po ? N.year + 1 : N.year;
+  const order = (l.nflOrders || {})[nextYr];
+  const drafted = Object.values(l.players).filter(p => p.nflDraft && !p.nflDraft.udfa && p.nflDraft.year === nextYr).sort((a, b) => a.nflDraft.overall - b.nflDraft.overall);
+  const draftCard = order ? `<div class="card"><h2>${nextYr} NFL Draft order</h2>${drafted.length ? '' : '<p class="muted">Set by final standings and playoff results. The NFL Draft runs when you advance to the offseason, before your rookie draft.</p>'}
+    <div class="nfl-order">${order.map((a, i) => `<div>${i + 1}. ${tm(a)} <span class="muted">${r(a) && N.year === nextYr - 1 ? r(a) : ''}</span></div>`).join('')}</div>
+    ${drafted.length ? `<h3>Skill-position picks</h3><div class="tbl-wrap" style="max-height:360px;overflow-y:auto"><table><tbody>${drafted.map(p => `<tr><td class="num">${capStr(p.nflDraft)}</td><td class="num muted">#${p.nflDraft.overall}</td><td>${tm(p.nflDraft.team)}</td><td>${posTag(p.pos)} ${pLink(p)}</td><td class="muted">${esc(p.college)}</td></tr>`).join('')}</tbody></table></div>` : ''}</div>` : '';
+  return `<div class="card"><h2>${N.year} NFL season <span class="r muted" style="font-size:13px">through week ${maxW} of ${E.NFL_WEEKS}</span></h2>
+      <p class="muted" style="font-size:12px">The real NFL plays alongside your league: same weeks, real divisions, a 17-game schedule and bye weeks (5–14). Teams with healthy stars win more, and final standings set the NFL Draft order. Highlighted teams employ your players.</p>
+      <div class="row" style="margin-bottom:10px">${Array.from({ length: E.NFL_WEEKS }, (_, i) => `<button class="sm ${i + 1 === w ? 'blue' : ''}" data-act="nflWk" data-w="${i + 1}">${i + 1}</button>`).join('')}</div>
+      <div class="grid g4">${games}</div>
+      <p class="muted" style="margin-top:8px">Bye: ${byes.length ? byes.map(tm).join(' ') : 'none'}</p></div>
+    ${po}${draftCard}
+    <div class="grid g4">${divs}</div>`;
 }
 
 // ---------- record book ----------
@@ -602,6 +651,7 @@ function playerCard(p) {
     <div><div style="font-size:22px;font-weight:800">${posTag(p.pos)} <span class="muted">#${p.num != null ? p.num : '—'}</span> ${esc(E.fullName(p))}${statusBadges(p)}</div>
     <div class="muted">${p.nfl ? `<b style="color:var(--text)">${esc(E.NFL[p.nfl] || p.nfl)}</b> · ` : ''}Fantasy: ${p.teamId != null ? teamName(p.teamId) : 'Free agent'}</div>
     <div class="muted">Age ${p.age} · 🏠 ${esc(p.hometown || 'Unknown')} · 🎓 ${esc(p.college)} · ${draftTxt}</div>
+    ${p.nflDraft ? `<div class="muted">🏈 ${capTxt(p.nflDraft)}${p.nflDraft.team ? ` by the ${esc(E.NFL[p.nflDraft.team] || p.nflDraft.team)}` : ''}${E.byeWeek(p.nfl) ? ` · bye week ${E.byeWeek(p.nfl)}` : ''}</div>` : ''}
     ${traits.filter(Boolean).length ? `<div style="margin-top:4px">${traits.filter(Boolean).map(t => `<span class="badge">${t}</span>`).join(' ')}</div>` : ''}</div></div>
     ${p.inj > 0 && p.injury ? `<div class="msg no">🚑 <b>${esc(p.injury.name)}</b> (week ${p.injury.week}) — ${esc(p.injury.est)}${p.injury.season ? '. Placed on injured reserve.' : ''}${p.injury.carry ? ' Serious injury: may lose some ability next season.' : ''}</div>` : ''}
     <div class="stats">
@@ -612,7 +662,7 @@ function playerCard(p) {
       <div class="stat"><div class="k">${statYear()} pts</div><div class="v">${E.seasonPts(p).toFixed(1)}</div></div>
       <div class="stat"><div class="k">Career pts</div><div class="v">${Math.round(career)}</div></div>
     </div>
-    ${wk.length ? `<div class="muted">${l.year} weekly scoring</div><div class="spark">${wk.map((x, i) => `<div class="${x == null ? 'out' : ''}" title="Wk ${i + 1}: ${x == null ? 'OUT' : x}" style="height:${x == null ? 100 : Math.max(2, (x / maxW) * 100)}%"></div>`).join('')}</div>` : ''}
+    ${wk.length ? `<div class="muted">${l.year} weekly scoring</div><div class="spark">${wk.map((x, i) => `<div class="${x == null ? 'out' : ''}" title="Wk ${i + 1}: ${x == null ? (E.byeWeek(p.nfl) === i + 1 ? 'BYE' : 'OUT') : x}" style="height:${x == null ? 100 : Math.max(2, (x / maxW) * 100)}%"></div>`).join('')}</div>` : ''}
     ${gameLog(p)}
     ${careerTable(p)}
     <div class="row" style="margin-top:14px">${actionFor(p)}${p.teamId != null && p.teamId !== l.userId ? `<button class="sm" data-act="team" data-id="${p.teamId}">View team</button>` : ''}</div>`;
@@ -636,7 +686,7 @@ function gameLog(p) {
   const cols = STAT_COLS[p.pos];
   return `<h3>${statYear()} game log</h3><div class="tbl-wrap" style="max-height:300px;overflow-y:auto"><table><thead><tr><th>Wk</th><th>Box score</th>${cols.map(c => `<th class="num">${c[0]}</th>`).join('')}<th class="num">Pts</th></tr></thead><tbody>
     ${wk.map((x, i) => { const st = p.st && p.st[i]; const hurt = p.injury && p.injury.year === l.year && p.injury.week === i + 1;
-      return x == null ? `<tr><td>${i + 1}</td><td class="muted" colspan="${cols.length + 1}">Out (injured)</td><td class="num">—</td></tr>`
+      return x == null ? `<tr><td>${i + 1}</td><td class="muted" colspan="${cols.length + 1}">${E.byeWeek(p.nfl) === i + 1 ? 'Bye week' : 'Out (injured)'}</td><td class="num">—</td></tr>`
         : `<tr><td>${i + 1}</td><td class="muted">${st ? esc(E.statLine(st, p.pos)) : ''}${hurt ? ' 🚑' : ''}</td>${cols.map(c => `<td class="num">${st ? statCell(st, c) : ''}</td>`).join('')}<td class="num"><b>${x.toFixed(1)}</b></td></tr>`; }).join('')}
   </tbody></table></div>`;
 }
@@ -835,7 +885,7 @@ function landReel(el, wrap, entry, quiet) {
   el.className = 'reel land';
   if (!entry) { num.textContent = '—'; el.classList.add('out'); return 0; }
   const [, pts, pj] = entry;
-  if (pts == null) { num.textContent = 'OUT'; el.classList.add('out'); return 0; }
+  if (pts == null) { num.textContent = entry[4] ? 'BYE' : 'OUT'; el.classList.add('out'); return 0; }
   num.textContent = pts.toFixed(1);
   const proj = pj || 5;
   if (pts >= Math.max(20, proj * 1.6)) {
@@ -1046,6 +1096,17 @@ const actions = {
     UI.tab = 'trade';
   },
   autoNow: () => { const u = user(); u.lineup = E.bestLineup(u); },
+  autoSub: () => {
+    const u = user();
+    const sw = E.autoSub(u.id);
+    u.autoLineup = false;
+    const made = sw.filter(x => x.in != null), stuck = sw.filter(x => x.in == null);
+    const nm = id => E.fullName(E.P(id));
+    toast(made.length || stuck.length
+      ? made.map(x => `${x.slot}: ${x.out != null ? nm(x.out) + (x.why === 'bye' ? ' (bye)' : ' (hurt)') : 'empty'} → ${nm(x.in)}`).concat(stuck.map(x => `${x.slot}: no healthy sub for ${nm(x.out)}`)).join(' · ')
+      : 'Everyone in your lineup is healthy and playing this week.', 4500);
+  },
+  nflWk: el => { UI.nflWk = +el.dataset.w; },
   draftP: el => { E.makeDraftPick(+el.dataset.id); if (L().draft) E.draftAdvance(true); afterDraftCheck(); },
   autopick: () => { const c = E.aiDraftChoice(L().userId); if (c) E.makeDraftPick(c.id); if (L().draft) E.draftAdvance(true); afterDraftCheck(); },
   simToMe: () => { E.draftAdvance(true); afterDraftCheck(); },

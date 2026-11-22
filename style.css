@@ -218,3 +218,13 @@ table.rec td.rv { font-weight: 700; white-space: nowrap; }
 .gd-rec-row.mine { color: #fde68a; }
 .rbadge { font-size: 10px; font-weight: 800; padding: 2px 6px; border-radius: 6px; background: rgba(59,130,246,.2); color: #93c5fd; margin-right: 4px; }
 .rbadge.lg { background: var(--gold); color: #1a1200; }
+
+/* NFL */
+.badge.bye { background: rgba(148,163,184,.2); color: #cbd5e1; }
+.grid.g4 { grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); }
+.nfl.mine { outline: 1px solid var(--accent); }
+.nfl-div h4 { margin: 0 0 6px; }
+.nfl-div table td, .nfl-div table th { padding: 3px 4px; font-size: 12.5px; }
+.nfl-po { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+.nfl-po h4 { margin: 0 0 6px; color: var(--muted); }
+.nfl-order { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 4px 10px; font-size: 13px; margin-bottom: 10px; }
