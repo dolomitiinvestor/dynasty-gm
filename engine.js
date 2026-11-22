@@ -75,6 +75,7 @@ const MODE = {
 const FIRST = ['Aaron','Andre','Bryce','Brock','Caleb','Cam','CeeDee','Chase','Cole','Dak','Dalvin','Damien','Darius','Davante','Deebo','Derrick','Devin','DJ','Drake','Elijah','Emmanuel','Garrett','George','Isaiah','Jaden','Jalen','Jamal','Jameson','Javonte','Jaxon','Jayden','Jordan','Josh','Justin','Kadarius','Keenan','Kenneth','Kyler','Kyle','Lamar','Malik','Marcus','Mark','Marvin','Matt','Micah','Mike','Nico','Patrick','Quentin','Rashee','Rome','Russell','Sam','Saquon','Stefon','Terry','Trey','Tre','Travis','Treylon','Tua','Tyler','Tyreek','Xavier','Zach','Zay','Bo','Ladd','Rhamondre','Kenny','Brian','Chris','Austin','Gabe','Hollis','Tank','Jahmyr','Bijan','Puka','Rashid','Tee','Romeo','Amari','Dontayvion','Keon','Brenton','Luther','Malachi','Omarion','Quinshon','Tetairoa','Colston','Harold','Kaleb','Trevor','Dillon','Carson','Shedeur','Ollie'];
 const LAST = ['Adams','Allen','Barnes','Bell','Bowers','Brooks','Brown','Burrow','Carter','Chubb','Coleman','Collins','Cook','Cooper','Davis','Diggs','Dobbins','Douglas','Edwards','Ellis','Evans','Fields','Flowers','Ford','Gibbs','Godwin','Goff','Graham','Green','Hall','Harris','Harrison','Henry','Hill','Hockenson','Holmes','Hunt','Irving','Jackson','Jefferson','Johnson','Jones','Kelce','Kincaid','Lamb','Lewis','London','Love','Mack','Marshall','Mason','McBride','McCaffrey','Metcalf','Miller','Mixon','Moore','Morgan','Murray','Nabers','Nacua','Olave','Parker','Pierce','Pitts','Prescott','Reed','Rice','Ridley','Robinson','Rogers','Ross','Samuel','Sanders','Smith','Stroud','Sutton','Swift','Taylor','Thomas','Tucker','Turner','Walker','Waddle','Ward','Warren','Washington','Watson','White','Williams','Wilson','Worthy','Wright','Young','Odunze','Achane','Bowman','Kirk','Stevenson','Hampton','Judkins','Egbuka','Tracy','Ayomanor'];
 const COLLEGES = ['Alabama','Georgia','Ohio State','Michigan','LSU','Texas','Oklahoma','USC','Oregon','Clemson','Florida','Penn State','Notre Dame','Auburn','Tennessee','Wisconsin','Iowa','Miami','Florida State','Utah','Washington','TCU','Baylor','Ole Miss','Kentucky','Arizona State','Colorado','Boise State','Toledo','App State','North Dakota St','Purdue','Missouri','Texas A&M','Stanford','UCLA','Pittsburgh','Louisville','Tulane','Memphis'];
+const HOMETOWNS = ['Akron, OH','Albuquerque, NM','Anchorage, AK','Atlanta, GA','Austin, TX','Bakersfield, CA','Baton Rouge, LA','Beaumont, TX','Belle Glade, FL','Biloxi, MS','Birmingham, AL','Boise, ID','Boston, MA','Bowling Green, KY','Bradenton, FL','Buffalo, NY','Camden, NJ','Canton, OH','Charleston, SC','Charlotte, NC','Chattanooga, TN','Chicago, IL','Cincinnati, OH','Cleveland, OH','Columbia, SC','Columbus, GA','Corpus Christi, TX','Dallas, TX','Dayton, OH','Denton, TX','Denver, CO','Des Moines, IA','Detroit, MI','Durham, NC','East St. Louis, IL','El Paso, TX','Erie, PA','Fayetteville, AR','Flint, MI','Fort Lauderdale, FL','Fort Worth, TX','Fresno, CA','Gainesville, FL','Gary, IN','Green Bay, WI','Greenville, SC','Hattiesburg, MS','Honolulu, HI','Houston, TX','Huntsville, AL','Indianapolis, IN','Jackson, MS','Jacksonville, FL','Kansas City, MO','Knoxville, TN','Lafayette, LA','Lakeland, FL','Las Vegas, NV','Lawton, OK','Lexington, KY','Little Rock, AR','Long Beach, CA','Los Angeles, CA','Louisville, KY','Lubbock, TX','Macon, GA','Madison, WI','Memphis, TN','Miami, FL','Milwaukee, WI','Minneapolis, MN','Mobile, AL','Monroe, LA','Montgomery, AL','Nashville, TN','New Orleans, LA','Newark, NJ','Norfolk, VA','Oakland, CA','Ocala, FL','Odessa, TX','Oklahoma City, OK','Omaha, NE','Orlando, FL','Pahokee, FL','Pasadena, CA','Pensacola, FL','Philadelphia, PA','Phoenix, AZ','Pittsburgh, PA','Portland, OR','Providence, RI','Raleigh, NC','Richmond, VA','Riverside, CA','Rochester, NY','Sacramento, CA','Salt Lake City, UT','San Antonio, TX','San Diego, CA','Savannah, GA','Seattle, WA','Shreveport, LA','Sioux Falls, SD','Spokane, WA','Springfield, MO','St. Louis, MO','Steubenville, OH','Tallahassee, FL','Tampa, FL','Toledo, OH','Tucson, AZ','Tulsa, OK','Tyler, TX','Valdosta, GA','Virginia Beach, VA','Waco, TX','Washington, DC','Wichita, KS','Wilmington, NC','Youngstown, OH'];
 const CITIES = ['Austin','Boise','Charleston','Denver','El Paso','Fargo','Honolulu','Indy','Juneau','Kansas City','Lansing','Memphis','Nashville','Omaha','Portland','Reno','Sacramento','Salt Lake','Spokane','Tucson','Tulsa','Albany','Anchorage','Birmingham','Cheyenne','Des Moines','Halifax','Louisville','Mobile','Orlando','Pittsburgh','Raleigh'];
 const MASCOTS = ['Bison','Comets','Cyclones','Dragons','Falcons','Foxes','Gators','Hornets','Jackals','Knights','Lumberjacks','Mammoths','Mustangs','Outlaws','Owls','Pilots','Raptors','Rattlers','Rhinos','Sasquatch','Scorpions','Sentinels','Stallions','Thunder','Titans','Vipers','Vultures','Wolves','Yetis','Zephyrs','Krakens','Moose'];
 const COLORS = ['#ef4444','#f59e0b','#10b981','#3b82f6','#8b5cf6','#ec4899','#14b8a6','#f97316','#84cc16','#06b6d4','#e11d48','#a855f7','#eab308','#22c55e'];
@@ -108,13 +109,184 @@ function news(text, type = 'info', mine = false) {
   if (L.news.length > 250) L.news.length = 250;
 }
 
-// ---------- player model ----------
-function ppg(ovr, pos) {
-  const c = PCFG[pos];
-  return c.base + c.scale * Math.pow(clamp(ovr, 0, 100) / 100, 2.6);
+// ---------- scoring settings ----------
+const SCORING_PRESETS = {
+  standard: { label: 'Standard (non-PPR)', passYd: 0.04, passTd: 4, int: -2, passComp: 0, passInc: 0, b300: 0, rushYd: 0.1, rushTd: 6, b100r: 0, rec: 0, tePrem: 0, recYd: 0.1, recTd: 6, b100c: 0, krYd: 0, prYd: 0, retTd: 6, fd: 0, twoPt: 2, fumLost: -2 },
+  half:     { label: 'Half PPR' },
+  ppr:      { label: 'Full PPR' },
+  tep:      { label: 'PPR + TE Premium' },
+  sixpt:    { label: 'PPR + 6-pt passing TD' },
+};
+Object.assign(SCORING_PRESETS.half, SCORING_PRESETS.standard, { label: 'Half PPR', rec: 0.5 });
+Object.assign(SCORING_PRESETS.ppr, SCORING_PRESETS.standard, { label: 'Full PPR', rec: 1 });
+Object.assign(SCORING_PRESETS.tep, SCORING_PRESETS.standard, { label: 'PPR + TE Premium', rec: 1, tePrem: 0.5 });
+Object.assign(SCORING_PRESETS.sixpt, SCORING_PRESETS.standard, { label: 'PPR + 6-pt passing TD', rec: 1, passTd: 6 });
+const SCORING_KEYS = Object.keys(SCORING_PRESETS.standard).filter(k => k !== 'label');
+function presetScoring(name) { const s = Object.assign({}, SCORING_PRESETS[name] || SCORING_PRESETS.half); delete s.label; return s; }
+function presetOf(S) {
+  return Object.keys(SCORING_PRESETS).find(k => SCORING_KEYS.every(f => Math.abs((SCORING_PRESETS[k][f] || 0) - (S[f] || 0)) < 1e-9)) || 'custom';
 }
-const proj = p => (p.inj > 0 ? 0 : ppg(p.ovr, p.pos));
+const SC = () => (L && L.settings && L.settings.scoring) || presetScoring('half');
+const scoringKey = () => SCORING_KEYS.map(k => SC()[k]).join(',');
+
+// ---------- stat model ----------
+// Each player has a few traits: QB mobility, RB pass-catching role, kick/punt returner.
+function traitsOf(p) {
+  return { mob: p && p.mob != null ? p.mob : 0.35, recv: p && p.recv != null ? p.recv : 0.5, ret: !!(p && p.ret) };
+}
+// Expected per-game stat line for a player of this position/rating/traits.
+function statMeans(pos, ovr, t) {
+  const q = Math.pow(clamp(ovr, 0, 100) / 100, 2.6);
+  const m = { pa: 0, cmp: 0, ypc: 0, ptd: 0, int: 0, ra: 0, ypcR: 0, rtd: 0, tg: 0, ctch: 0, ypr: 0, tdr: 0, fl: 0 };
+  if (pos === 'QB') {
+    Object.assign(m, { pa: 30 + 8 * q, cmp: 0.58 + 0.1 * q, ypc: 10 + 2.2 * q, ptd: 0.8 + 1.7 * q, int: 0.85 - 0.35 * q,
+      ra: 2 + 5 * t.mob, ypcR: 3.5 + 2 * t.mob, rtd: 0.03 + 0.3 * t.mob * (0.5 + q), fl: 0.12 });
+  } else if (pos === 'RB') {
+    Object.assign(m, { ra: 9 + 12 * q, ypcR: 3.9 + 0.8 * q, rtd: 0.12 + 0.6 * q,
+      tg: (1.5 + 3.5 * q) * (0.5 + t.recv), ctch: 0.78, ypr: 7.5 + q, tdr: 0.035, fl: 0.08 });
+  } else if (pos === 'WR') {
+    Object.assign(m, { ra: 0.3, ypcR: 7, rtd: 0.01, tg: 4 + 7 * q, ctch: 0.6 + 0.1 * q, ypr: 11.5 + 3.5 * q, tdr: 0.065 + 0.035 * q, fl: 0.04 });
+  } else {
+    Object.assign(m, { tg: 2.5 + 7 * q, ctch: 0.66 + 0.06 * q, ypr: 9.5 + 2 * q, tdr: 0.08, fl: 0.04 });
+  }
+  return m;
+}
+const RET = { kra: 2.2, kryPer: 23, pra: 1.8, pryPer: 9, td: 0.02 };
+function normTail(mean, thr, sd) { // P(X >= thr) for X ~ N(mean, sd)
+  const z = (thr - mean) / (sd * Math.SQRT2);
+  const t = 1 / (1 + 0.3275911 * Math.abs(z));
+  const erf = 1 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-z * z);
+  return 0.5 * (1 - (z >= 0 ? erf : -erf));
+}
+// Expected fantasy points per game under the league's scoring.
+function ppg(ovr, pos, p) {
+  const S = SC(), t = traitsOf(p), m = statMeans(pos, ovr, t);
+  const pc = m.pa * m.cmp, py = pc * m.ypc, ry = m.ra * m.ypcR, rec = m.tg * m.ctch, rcy = rec * m.ypr;
+  let pts = py * S.passYd + m.ptd * S.passTd + m.int * S.int + pc * S.passComp + (m.pa - pc) * S.passInc
+    + ry * S.rushYd + m.rtd * S.rushTd
+    + rec * (S.rec + (pos === 'TE' ? S.tePrem : 0)) + rcy * S.recYd + rec * m.tdr * S.recTd
+    + ((ry + rcy) / 14) * S.fd + m.fl * S.fumLost + 0.03 * S.twoPt;
+  if (t.ret) pts += RET.kra * RET.kryPer * S.krYd + RET.pra * RET.pryPer * S.prYd + RET.td * S.retTd;
+  if (S.b300 && py) pts += S.b300 * normTail(py, 300, 70);
+  if (S.b100r && ry) pts += S.b100r * normTail(ry, 100, ry * 0.4 + 12);
+  if (S.b100c && rcy) pts += S.b100c * normTail(rcy, 100, rcy * 0.45 + 12);
+  return pts;
+}
+const proj = p => (p.inj > 0 ? 0 : ppg(p.ovr, p.pos, p));
 const fullName = p => p.first + ' ' + p.last;
+
+function poisson(l) {
+  if (l <= 0) return 0;
+  if (l > 25) return Math.max(0, Math.round(gauss(l, Math.sqrt(l))));
+  const L0 = Math.exp(-l);
+  let k = 0, pr = 1;
+  do { k++; pr *= Math.random(); } while (pr > L0);
+  return k - 1;
+}
+function binom(n, p) { let k = 0; for (let i = 0; i < n; i++) if (Math.random() < p) k++; return k; }
+
+// Simulate one game's box score. vol < 1 = left the game early.
+function genStats(p, vol = 1) {
+  const t = traitsOf(p), m = statMeans(p.pos, p.ovr, t);
+  const g = clamp(gauss(1, 0.18), 0.5, 1.6) * vol; // game script / volume
+  const st = {};
+  let fd = 0;
+  if (m.pa) {
+    const pa = poisson(m.pa * g);
+    const pc = binom(pa, clamp(m.cmp + gauss(0, 0.06), 0.3, 0.9));
+    let py = 0;
+    for (let i = 0; i < pc; i++) py += Math.max(-2, Math.round(gauss(m.ypc - 1.5, m.ypc * 0.55)) + (Math.random() < 0.05 ? ri(15, 50) : 0));
+    const eff = pc ? clamp(py / (pc * m.ypc), 0.5, 1.6) : 0.5;
+    Object.assign(st, { pa, pc, py, ptd: poisson(m.ptd * (pa / m.pa) * eff), int: poisson(m.int * pa / m.pa) });
+  }
+  if (m.ra) {
+    const ra = poisson(m.ra * g);
+    let ry = 0;
+    for (let i = 0; i < ra; i++) {
+      const y = Math.max(-5, Math.round(gauss(m.ypcR - 1.17, 3.2)) + (Math.random() < 0.035 ? ri(12, 55) : 0));
+      ry += y;
+      if (y >= 6 || (y >= 2 && Math.random() < 0.12)) fd++;
+    }
+    Object.assign(st, { ra, ry, rtd: poisson(m.rtd * (ra / Math.max(0.5, m.ra)) * vol) });
+  }
+  if (m.tg) {
+    const tg = poisson(m.tg * g), rec = binom(tg, m.ctch);
+    let rcy = 0;
+    for (let i = 0; i < rec; i++) {
+      const y = Math.max(-3, Math.round(gauss(m.ypr - 2.6, m.ypr * 0.5)) + (Math.random() < 0.08 ? ri(15, 50) : 0));
+      rcy += y;
+      if (y >= 8 || Math.random() < 0.15) fd++;
+    }
+    Object.assign(st, { tg, rec, rcy, rctd: binom(rec, m.tdr) });
+  }
+  st.fd = fd;
+  st.fl = poisson(m.fl * g);
+  st.tp = poisson(0.03 * vol);
+  if (t.ret) {
+    const kra = poisson(RET.kra * vol), pra = poisson(RET.pra * vol);
+    let kry = 0, pry = 0;
+    for (let i = 0; i < kra; i++) kry += Math.max(5, Math.round(gauss(RET.kryPer, 7)) + (Math.random() < 0.02 ? ri(30, 70) : 0));
+    for (let i = 0; i < pra; i++) pry += Math.max(-2, Math.round(gauss(RET.pryPer, 6)) + (Math.random() < 0.03 ? ri(20, 60) : 0));
+    Object.assign(st, { kra, kry, pra, pry, rttd: poisson(RET.td * vol) });
+  }
+  Object.keys(st).forEach(k => { if (!st[k]) delete st[k]; });
+  return st;
+}
+
+function fpts(st, pos, S = SC()) {
+  const g = k => st[k] || 0;
+  let pts = g('py') * S.passYd + g('ptd') * S.passTd + g('int') * S.int + g('pc') * S.passComp + (g('pa') - g('pc')) * S.passInc
+    + g('ry') * S.rushYd + g('rtd') * S.rushTd
+    + g('rec') * (S.rec + (pos === 'TE' ? S.tePrem : 0)) + g('rcy') * S.recYd + g('rctd') * S.recTd
+    + g('fd') * S.fd + g('fl') * S.fumLost + g('tp') * S.twoPt
+    + g('kry') * S.krYd + g('pry') * S.prYd + g('rttd') * S.retTd;
+  if (g('py') >= 300) pts += S.b300;
+  if (g('ry') >= 100) pts += S.b100r;
+  if (g('rcy') >= 100) pts += S.b100c;
+  return Math.round(pts * 10) / 10;
+}
+
+function sumStats(list) {
+  const out = {};
+  list.forEach(st => { if (st) Object.keys(st).forEach(k => { out[k] = (out[k] || 0) + st[k]; }); });
+  return out;
+}
+
+// "22/34, 268 yds, 2 TD, 1 INT · 4-21 rush"
+function statLine(st, pos) {
+  if (!st) return 'Did not play';
+  const g = k => st[k] || 0, parts = [];
+  if (pos === 'QB' || g('pa')) {
+    parts.push(`${g('pc')}/${g('pa')}, ${g('py')} yds${g('ptd') ? `, ${g('ptd')} TD` : ''}${g('int') ? `, ${g('int')} INT` : ''}`);
+    if (g('ra')) parts.push(`${g('ra')}-${g('ry')} rush${g('rtd') ? `, ${g('rtd')} TD` : ''}`);
+  } else if (pos === 'RB') {
+    parts.push(`${g('ra')}-${g('ry')} rush${g('rtd') ? `, ${g('rtd')} TD` : ''}`);
+    if (g('tg')) parts.push(`${g('rec')}-${g('rcy')} rec${g('rctd') ? `, ${g('rctd')} TD` : ''}`);
+  } else {
+    parts.push(`${g('rec')}-${g('rcy')} rec${g('rctd') ? `, ${g('rctd')} TD` : ''} (${g('tg')} tgt)`);
+    if (g('ra')) parts.push(`${g('ra')}-${g('ry')} rush${g('rtd') ? `, ${g('rtd')} TD` : ''}`);
+  }
+  if (g('kra') || g('pra')) parts.push(`${g('kry') + g('pry')} ret yds${g('rttd') ? ', ret TD' : ''}`);
+  if (g('tp')) parts.push(`${g('tp')}× 2PT`);
+  if (g('fl')) parts.push(`${g('fl')} FUM`);
+  return parts.join(' · ');
+}
+
+// replacement level (points/game of a waiver-wire starter) per position, recomputed as needed
+let replCache = { key: null, v: null };
+function replLevel(pos) {
+  const key = `${L.year}|${L.phase}|${N()}|${scoringKey()}|${Object.keys(L.players).length}`;
+  if (replCache.key !== key) {
+    const by = { QB: [], RB: [], WR: [], TE: [] };
+    Object.values(L.players).forEach(p => { if (!p.retired && p.revealed) by[p.pos].push(ppg(p.ovr, p.pos, p)); });
+    const depth = { QB: 1, RB: 2.5, WR: 2.5, TE: 1 };
+    const v = {};
+    E_POS.forEach(ps => { const a = by[ps].sort((x, y) => y - x); v[ps] = a.length ? a[Math.min(a.length - 1, Math.round(N() * depth[ps]))] : 5; });
+    replCache = { key, v };
+  }
+  return replCache.v[pos];
+}
+const E_POS = POS;
 
 function newRookie(pos, year, persist = true) {
   const age = pick([21, 21, 22, 22, 22, 23]);
@@ -123,9 +295,10 @@ function newRookie(pos, year, persist = true) {
   const p = {
     id: persist ? nid() : -1, first: pick(FIRST), last: pick(LAST), pos, age, ovr, pot,
     dev: +rnd(0.2, 0.65).toFixed(2), college: pick(COLLEGES), teamId: null,
-    rookieYear: year, draft: null, revealed: false, inj: 0, injury: null, hist: [], wk: [],
-    nfl: pick(NFL_ABBRS),
+    rookieYear: year, draft: null, revealed: false, inj: 0, injury: null, hist: [], wk: [], st: [],
+    nfl: pick(NFL_ABBRS), hometown: pick(HOMETOWNS), num: jerseyNum(pos), face: ri(0, 1e9),
   };
+  addTraits(p);
   p.scoutOvr = Math.round(clamp(ovr + gauss(0, 7), 20, 95));
   p.scoutPot = Math.round(clamp(pot + gauss(0, 9), p.scoutOvr, 99));
   p.potEst = p.scoutPot;
@@ -157,6 +330,8 @@ function ageOne(p) {
     p.ovr += gauss(0, 2.5);
   }
   if (Math.random() < 0.06) p.ovr += gauss(0, 8); // breakout or collapse
+  if (p.ret && (p.ovr > 78 || p.age > 29) && Math.random() < 0.5) p.ret = false; // stars and vets come off return duty
+  else if (!p.ret && (p.pos === 'RB' || p.pos === 'WR') && p.age <= 25 && p.ovr < 65 && Math.random() < 0.05) p.ret = true;
   p.ovr = Math.round(clamp(p.ovr, 20, 99));
   p.pot = Math.max(p.pot, p.ovr);
 }
@@ -174,11 +349,15 @@ function retireChanceAt(pos, age, ovr) {
   return Math.min(0.95, ch);
 }
 
-function rollScore(p) {
-  const m = ppg(p.ovr, p.pos);
-  let s = gauss(m, m * 0.42 + 1.5);
-  if (Math.random() < 0.04) s += rnd(8, 20); // boom game
-  return Math.round(Math.max(-3, s) * 10) / 10;
+function jerseyNum(pos) {
+  const ranges = { QB: [[1, 19]], RB: [[0, 9], [20, 49]], WR: [[0, 19], [80, 89]], TE: [[80, 89], [40, 49], [0, 19]] }[pos];
+  const r = pick(ranges);
+  return ri(r[0], r[1]);
+}
+function addTraits(p) {
+  if (p.pos === 'QB' && p.mob == null) p.mob = +Math.pow(Math.random(), 1.6).toFixed(2);
+  if (p.pos === 'RB' && p.recv == null) p.recv = +Math.random().toFixed(2);
+  if (p.ret == null) p.ret = (p.pos === 'RB' || p.pos === 'WR') && Math.random() < 0.13;
 }
 
 function weighted(list) { // [[item, weight], ...]
@@ -204,7 +383,7 @@ function injure(p, w) {
   if (p.teamId != null) {
     L.injuryLog.push({ year: L.year, week: w, id: p.id, team: p.teamId, pname: fullName(p), pos: p.pos, nfl: p.nfl, name: def.n, est, season: p.injury.season, tier });
     if (p.teamId === L.userId) news(`🚑 ${p.pos} ${fullName(p)} (${p.nfl}) — ${def.n}, ${est}.`, 'bad', true);
-    else if (p.injury.season && ppg(p.ovr, p.pos) > PCFG[p.pos].repl + 3) news(`🚑 ${T(p.teamId).abbr}'s ${p.pos} ${fullName(p)} (${p.nfl}) suffers a ${def.n.toLowerCase()} — out for the season.`);
+    else if (p.injury.season && ppg(p.ovr, p.pos, p) > replLevel(p.pos) + 3) news(`🚑 ${T(p.teamId).abbr}'s ${p.pos} ${fullName(p)} (${p.nfl}) suffers a ${def.n.toLowerCase()} — out for the season.`);
   }
   return p.injury;
 }
@@ -242,7 +421,7 @@ function valueCore(p, mode, view, frac) {
   let v = 0, surv = 1, a = p.age;
   for (let y = 0; y < 5; y++) {
     if (y > 0) { a++; surv *= 1 - retireChanceAt(p.pos, a, path[y]); }
-    const above = Math.max(0, ppg(path[y], p.pos) - c.repl + 2);
+    const above = Math.max(0, ppg(path[y], p.pos, p) - replLevel(p.pos) + 2);
     const w = y === 0 ? m.now * frac : Math.pow(m.disc, y);
     v += Math.pow(above, 1.6) * w * surv;
   }
@@ -261,7 +440,8 @@ function playerValue(p, mode = 'balanced', view = 'true') {
 const curveCache = {};
 function rookieCurve() {
   const n = N() * C.ROOKIE_ROUNDS;
-  if (curveCache[n]) return curveCache[n];
+  const ck = n + '|' + scoringKey();
+  if (curveCache[ck]) return curveCache[ck];
   const K = 8, sums = new Array(n).fill(0);
   for (let k = 0; k < K; k++) {
     const cls = rookieClassPositions(n * 2).map(pos => newRookie(pos, 0, false));
@@ -269,7 +449,7 @@ function rookieCurve() {
     for (let i = 0; i < n; i++) sums[i] += vals[i];
   }
   const curve = sums.map(s => (s / K) * 0.88); // uncertainty discount
-  curveCache[n] = curve;
+  curveCache[ck] = curve;
   return curve;
 }
 function curveAt(x) { // x = 1-based overall pick, may be fractional
@@ -353,7 +533,7 @@ function sanitizeLineup(t) {
   });
 }
 function teamPower(t) {
-  return sum(bestLineup(t).map(id => (id != null ? ppg(P(id).ovr, P(id).pos) : 0)));
+  return sum(bestLineup(t).map(id => (id != null ? ppg(P(id).ovr, P(id).pos, P(id)) : 0)));
 }
 
 function setModes() {
@@ -444,10 +624,10 @@ function makeTeams(n, userName) {
   return teams;
 }
 
-function newLeague({ teamName = 'My Team', numTeams = 10, difficulty = 'normal' } = {}) {
+function newLeague({ teamName = 'My Team', numTeams = 10, difficulty = 'normal', scoring = null } = {}) {
   L = {
     version: 1, year: C.START_YEAR, phase: 'startup', week: 0, nextId: 1, userId: 0,
-    settings: { numTeams, difficulty },
+    settings: { numTeams, difficulty, scoring: Object.assign(presetScoring('half'), scoring || {}) },
     teams: makeTeams(numTeams, teamName.trim() || 'My Team'),
     players: {}, picks: [], schedule: [], results: [], playoffs: null, draft: null,
     news: [], offers: [], history: [], retired: [], draftOrders: {}, draftHistory: {}, injuryLog: [],
@@ -601,7 +781,7 @@ function startSeason() {
     if (!t.human) { aiCutDown(t); aiFill(t, 19); }
     if (!t.human || t.autoLineup) t.lineup = bestLineup(t);
   });
-  Object.values(L.players).forEach(p => { p.wk = []; });
+  Object.values(L.players).forEach(p => { p.wk = []; p.st = []; });
   L.schedule = makeSchedule(L.teams.map(t => t.id));
   L.results = [];
   L.playoffs = null;
@@ -639,16 +819,17 @@ function simWeek() {
     if (!t.human || t.autoLineup) t.lineup = bestLineup(t);
     else sanitizeLineup(t);
   });
-  // score every active player
+  // simulate every active player's box score and score it with the league settings
+  const S = SC();
   Object.values(L.players).forEach(p => {
     if (p.retired) return;
-    if (p.inj > 0) { p.wk[w - 1] = null; p.inj--; if (!p.inj) p.injury = null; return; }
-    let s = rollScore(p);
-    if (Math.random() < INJ_RATE[p.pos]) {
-      injure(p, w);
-      s = Math.round(s * rnd(0.1, 0.7) * 10) / 10; // left the game early
-    }
-    p.wk[w - 1] = s;
+    if (!p.st) p.st = [];
+    if (p.inj > 0) { p.wk[w - 1] = null; p.st[w - 1] = null; p.inj--; if (!p.inj) p.injury = null; return; }
+    const hurt = Math.random() < INJ_RATE[p.pos];
+    const st = genStats(p, hurt ? rnd(0.1, 0.7) : 1); // injured players leave the game early
+    if (hurt) injure(p, w);
+    p.st[w - 1] = st;
+    p.wk[w - 1] = fpts(st, p.pos, S);
     // in-season development
     if (p.age <= 25 && p.ovr < p.pot && Math.random() < 0.12) p.ovr++;
     if (p.age >= PCFG[p.pos].declineAge && Math.random() < 0.08) p.ovr--;
@@ -663,7 +844,7 @@ function simWeek() {
       if (id == null) return null;
       const p = P(id);
       const hurt = p.injury && p.injury.year === L.year && p.injury.week === w ? 1 : 0;
-      return [id, p.wk[w - 1], Math.round(ppg(p.ovr, p.pos) * 10) / 10, hurt];
+      return [id, p.wk[w - 1], Math.round(ppg(p.ovr, p.pos, p) * 10) / 10, hurt];
     });
     return { a, b, sa, sb, la: snap(ta), lb: snap(tb), year: L.year };
   };
@@ -743,7 +924,7 @@ function endSeason() {
   L.teams.forEach(t => t.hist.push({ year: L.year, w: t.w, l: t.l, t: t.t, pf: t.pf, finish: finishOf(t.id) }));
   all.forEach(p => {
     const gp = seasonGP(p);
-    if (gp > 0 || p.teamId != null) p.hist.push({ year: L.year, team: p.teamId != null ? T(p.teamId).abbr : 'FA', gp, pts: seasonPts(p), ovr: p.ovr, age: p.age });
+    if (gp > 0 || p.teamId != null) p.hist.push({ year: L.year, team: p.teamId != null ? T(p.teamId).abbr : 'FA', gp, pts: seasonPts(p), ovr: p.ovr, age: p.age, st: sumStats(p.st || []) });
   });
   // draft order for next year: non-playoff worst->best, semifinal losers, runner-up, champion
   const st = standingsOrder();
@@ -999,8 +1180,14 @@ function load(json) {
   L = typeof json === 'string' ? JSON.parse(json) : json;
   if (L) { // migrate older saves
     if (!L.injuryLog) L.injuryLog = [];
+    if (!L.settings.scoring) L.settings.scoring = presetScoring('half');
     Object.values(L.players).forEach(p => {
       if (!p.nfl) p.nfl = pick(NFL_ABBRS);
+      if (!p.hometown) p.hometown = pick(HOMETOWNS);
+      if (p.num == null) p.num = jerseyNum(p.pos);
+      if (p.face == null) p.face = ri(0, 1e9);
+      if (!p.st) p.st = [];
+      addTraits(p);
       if (p.injury === undefined) p.injury = null;
       if (p.inj > 0 && !p.injury) p.injury = { name: 'Undisclosed injury', est: `out ~${p.inj} weeks`, short: `${p.inj}w`, season: false, carry: 0, year: L.year, week: L.week, tier: 'moderate' };
     });
@@ -1010,6 +1197,8 @@ function load(json) {
 
 G.Engine = {
   C, POS, SLOTS, PCFG, DIFF, MODE, NFL, INJ_RATE,
+  SCORING_PRESETS, SCORING_KEYS, presetScoring, presetOf, statLine, sumStats, fpts, replLevel,
+  setScoring(S) { L.settings.scoring = Object.assign(presetScoring('standard'), S); },
   get L() { return L; },
   newLeague, load, serialize,
   P, T, fullName, ppg, proj, seasonPts, seasonGP, playerValue, valueCore, pickValue, pickLabel, pickSlot,

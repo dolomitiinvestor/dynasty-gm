@@ -23,7 +23,7 @@ function gradeOf(n) {
 }
 const ovrStr = p => (p.revealed ? p.ovr : `~${p.scoutOvr}`);
 const potStr = p => gradeOf(p.revealed ? p.potEst : p.scoutPot);
-const projStr = p => E.ppg(p.revealed ? p.ovr : p.scoutOvr, p.pos).toFixed(1);
+const projStr = p => E.ppg(p.revealed ? p.ovr : p.scoutOvr, p.pos, p).toFixed(1);
 const val = p => Math.round(E.playerValue(p, 'balanced', 'public'));
 const teamAbbr = id => (id == null ? '<span class="muted">FA</span>' : `<a data-act="team" data-id="${id}"><span class="teamdot" style="background:${E.T(id).color}"></span>${esc(E.T(id).abbr)}</a>`);
 const teamName = id => `<a data-act="team" data-id="${id}"><span class="teamdot" style="background:${E.T(id).color}"></span>${esc(E.T(id).name)}</a>`;
@@ -110,19 +110,46 @@ function render() {
 }
 
 // ---------- setup ----------
+UI.setup = { name: 'Gridiron Dynasty', n: 10, d: 'normal', scoring: E.presetScoring('half') };
+function captureSetup() {
+  if ($('#s-name')) Object.assign(UI.setup, { name: $('#s-name').value, n: +$('#s-n').value, d: $('#s-d').value });
+}
+
+const SC_GROUPS = [
+  ['Passing', [['passYd', 'Passing yards per point', 'ypp'], ['passTd', 'Passing TD'], ['int', 'Interception thrown'], ['passComp', 'Completion'], ['passInc', 'Incompletion'], ['b300', 'Bonus: 300+ passing yds']]],
+  ['Rushing', [['rushYd', 'Rushing yards per point', 'ypp'], ['rushTd', 'Rushing TD'], ['b100r', 'Bonus: 100+ rushing yds']]],
+  ['Receiving', [['rec', 'Reception (PPR)'], ['tePrem', 'TE premium (extra per TE catch)'], ['recYd', 'Receiving yards per point', 'ypp'], ['recTd', 'Receiving TD'], ['b100c', 'Bonus: 100+ receiving yds']]],
+  ['Returns & misc', [['krYd', 'Kick return yards per point', 'ypp'], ['prYd', 'Punt return yards per point', 'ypp'], ['retTd', 'Kick/punt return TD'], ['fd', 'First down (rush or rec)'], ['twoPt', '2-pt conversion'], ['fumLost', 'Fumble lost']]],
+];
+function scoringForm(S, scope, editable) {
+  const dis = editable ? '' : 'disabled';
+  const preset = E.presetOf(S);
+  return `<div class="row" style="margin-bottom:10px"><span class="muted">Preset</span>
+    <select data-chg="scpreset" data-scope="${scope}" ${dis}>${Object.keys(E.SCORING_PRESETS).map(k => `<option value="${k}" ${preset === k ? 'selected' : ''}>${E.SCORING_PRESETS[k].label}</option>`).join('')}<option value="custom" ${preset === 'custom' ? 'selected' : ''}>Custom</option></select></div>
+    <div class="sc-grid">${SC_GROUPS.map(([g, fields]) => `<div class="sc-group"><h4>${g}</h4>${fields.map(([k, label, t]) => {
+      const v = S[k] || 0;
+      const shown = t === 'ypp' ? (v ? +(1 / v).toFixed(2) : 0) : v;
+      return `<label class="sc-f"><span>${label}</span><input type="number" step="${t === 'ypp' ? 1 : 0.5}" value="${shown}" data-chg="sc" data-k="${k}" data-t="${t || ''}" data-scope="${scope}" ${dis}></label>`;
+    }).join('')}</div>`).join('')}</div>
+    <p class="muted" style="font-size:12px">"Yards per point" fields: 25 = 1 point per 25 yards (0.04/yd), 10 = 1 per 10 yds. Set 0 to turn a category off.</p>`;
+}
+const scoringEditable = () => ['startup', 'preseason', 'offseason', 'draft'].includes(L().phase);
+
 function renderSetup() {
   $('#top').innerHTML = `<div class="logo">🏈 Dynasty<span>GM</span></div>`;
   $('#nav').style.display = 'none';
   $('#app').innerHTML = `
-  <div class="setup">
+  <div class="setup wide">
     <div class="hero"><h1>Dynasty<span>GM</span></h1><p class="muted">A generative fantasy football dynasty. Every player, rookie class and career is procedurally generated. Draft, trade and build a dynasty against CPU managers — season after season.</p></div>
     <div class="card">
       <h2>Start a new league</h2>
-      <label>Your team name</label><input id="s-name" maxlength="28" value="Gridiron Dynasty">
+      <label>Your team name</label><input id="s-name" maxlength="28" value="${esc(UI.setup.name)}">
       <label>League size</label>
-      <select id="s-n"><option value="8">8 teams</option><option value="10" selected>10 teams</option><option value="12">12 teams</option></select>
+      <select id="s-n">${[8, 10, 12].map(n => `<option value="${n}" ${UI.setup.n === n ? 'selected' : ''}>${n} teams</option>`).join('')}</select>
       <label>Difficulty (how hard CPU managers bargain)</label>
-      <select id="s-d"><option value="easy">Easy</option><option value="normal" selected>Normal</option><option value="hard">Hard</option></select>
+      <select id="s-d">${['easy', 'normal', 'hard'].map(d => `<option value="${d}" ${UI.setup.d === d ? 'selected' : ''}>${d[0].toUpperCase() + d.slice(1)}</option>`).join('')}</select>
+      <h3 style="margin-top:22px">Scoring</h3>
+      ${scoringForm(UI.setup.scoring, 'setup', true)}
       <p class="muted">Lineup: QB, 2 RB, 2 WR, TE, FLEX · ${C.ROSTER_MAX}-man rosters · ${C.REG_WEEKS}-week season · top ${C.PLAYOFF_TEAMS} make playoffs · ${C.ROOKIE_ROUNDS}-round rookie drafts.</p>
       <div class="row"><button class="primary" data-act="create">Create League &amp; Start Draft</button><button data-act="import">Import Save</button></div>
     </div>
@@ -238,8 +265,8 @@ function standingsTable(compact) {
   const l = L();
   const ids = E.standingsOrder();
   const inSeason = l.phase === 'regular' || l.phase === 'playoffs' || l.phase === 'offseason';
-  return `<div class="tbl-wrap"><table><thead><tr><th>#</th><th>Team</th>${inSeason ? '<th class="num">W-L</th><th class="num">PF</th>' : ''}${compact ? '' : (inSeason ? '<th class="num">PA</th>' : '') + '<th class="num">Power</th><th>Mode</th><th class="num">Titles</th>'}</tr></thead><tbody>
-    ${ids.map((id, i) => { const t = E.T(id); return `<tr class="${t.human ? 'me' : ''}"><td>${i + 1}${inSeason && i === C.PLAYOFF_TEAMS - 1 ? '' : ''}</td><td>${teamName(id)}</td>${inSeason ? `<td class="num">${rec(t)}</td><td class="num">${t.pf.toFixed(1)}</td>` : ''}${compact ? '' : (inSeason ? `<td class="num">${t.pa.toFixed(1)}</td>` : '') + `<td class="num">${E.teamPower(t).toFixed(1)}</td><td>${t.human ? '<span class="badge">You</span>' : modeBadge(t.mode)}</td><td class="num">${t.titles ? '🏆'.repeat(Math.min(t.titles, 5)) + (t.titles > 5 ? t.titles : '') : ''}</td>`}</tr>${inSeason && i === C.PLAYOFF_TEAMS - 1 ? '<tr><td colspan="9" style="padding:0;border-bottom:2px dashed var(--line)"></td></tr>' : ''}`; }).join('')}
+  return `<div class="tbl-wrap"><table><thead><tr><th>#</th><th>Team</th>${inSeason ? '<th class="num">W-L</th><th class="num">PF</th><th class="num">PA</th>' : ''}${compact ? '' : '<th class="num">Power</th><th>Mode</th><th class="num">Titles</th>'}</tr></thead><tbody>
+    ${ids.map((id, i) => { const t = E.T(id); return `<tr class="${t.human ? 'me' : ''}"><td>${i + 1}${inSeason && i === C.PLAYOFF_TEAMS - 1 ? '' : ''}</td><td>${teamName(id)}</td>${inSeason ? `<td class="num">${rec(t)}</td><td class="num">${t.pf.toFixed(1)}</td><td class="num">${t.pa.toFixed(1)}</td>` : ''}${compact ? '' : `<td class="num">${E.teamPower(t).toFixed(1)}</td><td>${t.human ? '<span class="badge">You</span>' : modeBadge(t.mode)}</td><td class="num">${t.titles ? '🏆'.repeat(Math.min(t.titles, 5)) + (t.titles > 5 ? t.titles : '') : ''}</td>`}</tr>${inSeason && i === C.PLAYOFF_TEAMS - 1 ? '<tr><td colspan="9" style="padding:0;border-bottom:2px dashed var(--line)"></td></tr>' : ''}`; }).join('')}
   </tbody></table></div>`;
 }
 
@@ -404,12 +431,13 @@ function viewDraft() {
 // ---------- league ----------
 function viewLeague() {
   const l = L();
-  const subs = [['standings', 'Standings'], ['schedule', 'Schedule & Results'], ['playoffs', 'Playoffs'], ['leaders', 'Leaders'], ['teams', 'Teams']];
+  const subs = [['standings', 'Standings'], ['schedule', 'Schedule & Results'], ['playoffs', 'Playoffs'], ['leaders', 'Leaders'], ['teams', 'Teams'], ['scoring', 'Scoring']];
   let body = '';
   if (UI.league === 'standings') body = `<div class="card"><h2>Standings</h2>${standingsTable(false)}</div>`;
   else if (UI.league === 'schedule') body = scheduleView();
   else if (UI.league === 'playoffs') body = playoffsView();
   else if (UI.league === 'leaders') body = leadersView();
+  else if (UI.league === 'scoring') body = `<div class="card"><h2>Scoring settings <span class="r">${esc((E.SCORING_PRESETS[E.presetOf(l.settings.scoring)] || { label: 'Custom' }).label)}</span></h2>${scoringEditable() ? '<p class="muted">Changes apply to all future games. Projections and trade values update immediately.</p>' : '<div class="msg" style="margin-bottom:10px">🔒 Scoring is locked during the season. You can change it in the offseason or preseason.</div>'}${scoringForm(l.settings.scoring, 'league', scoringEditable())}</div>`;
   else body = `<div class="grid g2">${l.teams.map(t => `<div class="card"><h2>${teamName(t.id)} ${t.human ? '<span class="badge">You</span>' : modeBadge(t.mode)}<span class="r">${t.titles ? '🏆×' + t.titles : ''}</span></h2>
       <p class="muted">Power ${E.teamPower(t).toFixed(1)} · Roster ${t.roster.length} · Picks ${l.picks.filter(k => k.ownerId === t.id && !k.used).length}</p>
       ${E.bestLineup(t).map(id => id != null ? `<div>${posTag(E.P(id).pos)} ${pLink(E.P(id))} <span class="muted">${E.P(id).age}y · ${E.P(id).ovr}</span></div>` : '').join('')}</div>`).join('')}</div>`;
@@ -494,22 +522,137 @@ function playerCard(p) {
   const maxW = Math.max(10, ...wk.filter(x => x != null));
   const draftTxt = p.draft ? `${p.draft.year} draft, pick ${p.draft.round}.${String(p.draft.no).padStart(2, '0')} by ${E.T(p.draft.teamId).abbr}` : p.rookieYear === l.year && !p.revealed ? `${l.year} draft prospect` : 'Undrafted / original pool';
   const career = p.hist.reduce((s, h) => s + h.pts, 0);
-  return `<div class="pcard-head"><div class="bigpos" style="background:${colors[p.pos]}">${p.pos}</div>
-    <div><div style="font-size:22px;font-weight:800">${esc(E.fullName(p))}${statusBadges(p)}</div>
-    <div class="muted">${p.nfl ? `<b style="color:var(--text)">${esc(E.NFL[p.nfl] || p.nfl)}</b> · ` : ''}Fantasy: ${p.teamId != null ? teamName(p.teamId) : 'Free agent'} · Age ${p.age} · ${esc(p.college)} · ${draftTxt}</div></div></div>
+  const traits = [];
+  if (p.pos === 'QB' && p.mob != null) traits.push(p.mob > 0.6 ? 'Dual-threat QB' : p.mob < 0.2 ? 'Pocket passer' : '');
+  if (p.pos === 'RB' && p.recv != null) traits.push(p.recv > 0.7 ? 'Pass-catching back' : p.recv < 0.25 ? 'Early-down grinder' : '');
+  if (p.ret) traits.push('Kick/punt returner');
+  return `<div class="pcard-head"><div class="face">${faceSVG(p)}</div>
+    <div><div style="font-size:22px;font-weight:800">${posTag(p.pos)} <span class="muted">#${p.num != null ? p.num : '—'}</span> ${esc(E.fullName(p))}${statusBadges(p)}</div>
+    <div class="muted">${p.nfl ? `<b style="color:var(--text)">${esc(E.NFL[p.nfl] || p.nfl)}</b> · ` : ''}Fantasy: ${p.teamId != null ? teamName(p.teamId) : 'Free agent'}</div>
+    <div class="muted">Age ${p.age} · 🏠 ${esc(p.hometown || 'Unknown')} · 🎓 ${esc(p.college)} · ${draftTxt}</div>
+    ${traits.filter(Boolean).length ? `<div style="margin-top:4px">${traits.filter(Boolean).map(t => `<span class="badge">${t}</span>`).join(' ')}</div>` : ''}</div></div>
     ${p.inj > 0 && p.injury ? `<div class="msg no">🚑 <b>${esc(p.injury.name)}</b> (week ${p.injury.week}) — ${esc(p.injury.est)}${p.injury.season ? '. Placed on injured reserve.' : ''}${p.injury.carry ? ' Serious injury: may lose some ability next season.' : ''}</div>` : ''}
     <div class="stats">
       <div class="stat"><div class="k">Overall</div><div class="v">${ovrStr(p)}</div></div>
       <div class="stat"><div class="k">Potential</div><div class="v">${potStr(p)}</div></div>
       <div class="stat"><div class="k">Proj PPG</div><div class="v">${projStr(p)}</div></div>
       <div class="stat"><div class="k">Value</div><div class="v">${val(p)}</div></div>
-      <div class="stat"><div class="k">${l.year} pts</div><div class="v">${E.seasonPts(p).toFixed(1)}</div></div>
+      <div class="stat"><div class="k">${statYear()} pts</div><div class="v">${E.seasonPts(p).toFixed(1)}</div></div>
       <div class="stat"><div class="k">Career pts</div><div class="v">${Math.round(career)}</div></div>
     </div>
     ${wk.length ? `<div class="muted">${l.year} weekly scoring</div><div class="spark">${wk.map((x, i) => `<div class="${x == null ? 'out' : ''}" title="Wk ${i + 1}: ${x == null ? 'OUT' : x}" style="height:${x == null ? 100 : Math.max(2, (x / maxW) * 100)}%"></div>`).join('')}</div>` : ''}
-    <h3>Career</h3>${p.hist.length ? `<table><thead><tr><th>Year</th><th>Team</th><th class="num">Age</th><th class="num">OVR</th><th class="num">GP</th><th class="num">Pts</th><th class="num">PPG</th></tr></thead><tbody>
-      ${p.hist.slice().reverse().map(h => `<tr><td>${h.year}</td><td>${esc(h.team)}</td><td class="num">${h.age}</td><td class="num">${h.ovr}</td><td class="num">${h.gp}</td><td class="num">${h.pts.toFixed(1)}</td><td class="num">${h.gp ? (h.pts / h.gp).toFixed(1) : '—'}</td></tr>`).join('')}</tbody></table>` : '<p class="muted">No completed seasons.</p>'}
+    ${gameLog(p)}
+    ${careerTable(p)}
     <div class="row" style="margin-top:14px">${actionFor(p)}${p.teamId != null && p.teamId !== l.userId ? `<button class="sm" data-act="team" data-id="${p.teamId}">View team</button>` : ''}</div>`;
+}
+
+// position-specific stat columns: [label, stat key or formatter]
+const STAT_COLS = {
+  QB: [['Cmp/Att', st => `${st.pc || 0}/${st.pa || 0}`], ['Pass Yds', 'py'], ['Pass TD', 'ptd'], ['INT', 'int'], ['Rush Yds', 'ry'], ['Rush TD', 'rtd']],
+  RB: [['Car', 'ra'], ['Rush Yds', 'ry'], ['Rush TD', 'rtd'], ['Rec', 'rec'], ['Rec Yds', 'rcy'], ['Rec TD', 'rctd']],
+  WR: [['Tgt', 'tg'], ['Rec', 'rec'], ['Rec Yds', 'rcy'], ['Rec TD', 'rctd'], ['Rush Yds', 'ry']],
+  TE: [['Tgt', 'tg'], ['Rec', 'rec'], ['Rec Yds', 'rcy'], ['Rec TD', 'rctd']],
+};
+// weekly stats on players belong to last season once the new league year has started
+const statYear = () => (['draft', 'preseason'].includes(L().phase) ? L().year - 1 : L().year);
+const statCell = (st, c) => (typeof c[1] === 'function' ? c[1](st) : (st[c[1]] || 0));
+
+function gameLog(p) {
+  const l = L();
+  const wk = p.wk || [];
+  if (!wk.length) return '';
+  const cols = STAT_COLS[p.pos];
+  return `<h3>${statYear()} game log</h3><div class="tbl-wrap" style="max-height:300px;overflow-y:auto"><table><thead><tr><th>Wk</th><th>Box score</th>${cols.map(c => `<th class="num">${c[0]}</th>`).join('')}<th class="num">Pts</th></tr></thead><tbody>
+    ${wk.map((x, i) => { const st = p.st && p.st[i]; const hurt = p.injury && p.injury.year === l.year && p.injury.week === i + 1;
+      return x == null ? `<tr><td>${i + 1}</td><td class="muted" colspan="${cols.length + 1}">Out (injured)</td><td class="num">—</td></tr>`
+        : `<tr><td>${i + 1}</td><td class="muted">${st ? esc(E.statLine(st, p.pos)) : ''}${hurt ? ' 🚑' : ''}</td>${cols.map(c => `<td class="num">${st ? statCell(st, c) : ''}</td>`).join('')}<td class="num"><b>${x.toFixed(1)}</b></td></tr>`; }).join('')}
+  </tbody></table></div>`;
+}
+
+function careerTable(p) {
+  const l = L();
+  const cols = STAT_COLS[p.pos];
+  const rows = p.hist.slice().reverse();
+  const gpNow = E.seasonGP(p);
+  const live = gpNow && (l.phase === 'regular' || l.phase === 'playoffs') && !p.hist.some(h => h.year === l.year);
+  if (live) rows.unshift({ year: l.year + '*', team: p.teamId != null ? E.T(p.teamId).abbr : 'FA', age: p.age, ovr: p.ovr, gp: gpNow, pts: E.seasonPts(p), st: E.sumStats(p.st || []) });
+  if (!rows.length) return '<h3>Career</h3><p class="muted">No games played yet.</p>';
+  const tot = E.sumStats(rows.map(r => r.st).filter(Boolean));
+  const totPts = rows.reduce((a, r) => a + r.pts, 0), totGp = rows.reduce((a, r) => a + r.gp, 0);
+  return `<h3>Career</h3><div class="tbl-wrap"><table><thead><tr><th>Year</th><th>Team</th><th class="num">Age</th><th class="num">OVR</th><th class="num">GP</th>${cols.map(c => `<th class="num">${c[0]}</th>`).join('')}<th class="num">Pts</th><th class="num">PPG</th></tr></thead><tbody>
+    ${rows.map(h => `<tr><td>${h.year}</td><td>${esc(h.team)}</td><td class="num">${h.age}</td><td class="num">${h.ovr}</td><td class="num">${h.gp}</td>${cols.map(c => `<td class="num">${h.st ? statCell(h.st, c) : '—'}</td>`).join('')}<td class="num">${h.pts.toFixed(1)}</td><td class="num">${h.gp ? (h.pts / h.gp).toFixed(1) : '—'}</td></tr>`).join('')}
+    ${rows.length > 1 ? `<tr style="font-weight:700"><td>Total</td><td></td><td></td><td></td><td class="num">${totGp}</td>${cols.map(c => `<td class="num">${statCell(tot, c)}</td>`).join('')}<td class="num">${totPts.toFixed(1)}</td><td class="num">${totGp ? (totPts / totGp).toFixed(1) : '—'}</td></tr>` : ''}
+  </tbody></table></div>${live ? '<p class="muted" style="font-size:12px">* season in progress</p>' : ''}`;
+}
+
+// ---------- stick-figure faces (deterministic per player) ----------
+function seeded(seed) {
+  let x = (seed >>> 0) || 1;
+  return () => { x ^= x << 13; x >>>= 0; x ^= x >> 17; x ^= x << 5; x >>>= 0; return x / 4294967296; };
+}
+function faceSVG(p) {
+  const r = seeded((p.face != null ? p.face : p.id * 7919) + 1);
+  const pk = a => a[Math.floor(r() * a.length)];
+  const skin = pk(['#fbe0c6', '#f1c27d', '#e0ac69', '#c68642', '#a0662f', '#8d5524', '#5c3a1e']);
+  const hc = pk(['#141414', '#2b1a0f', '#4a2c17', '#7a4a21', '#b8860b', '#e0c27a', '#8b3a1a', '#6b6b6b']);
+  const hair = pk(['none', 'short', 'flat', 'afro', 'mohawk', 'curly', 'long', 'buzz', 'dreads']);
+  const eyes = pk(['dot', 'wide', 'sleepy', 'angry', 'happy']);
+  const mouth = pk(['smile', 'grin', 'flat', 'smirk', 'o', 'frown']);
+  const facial = pk(['none', 'none', 'none', 'beard', 'goatee', 'stache', 'stubble']);
+  const eyeBlack = r() < 0.35, headband = r() < 0.15, armUp = r() < 0.3;
+  const pc = { QB: '#f472b6', RB: '#34d399', WR: '#60a5fa', TE: '#fbbf24' }[p.pos];
+  const ink = '#0b1220', limb = '#e6ecf7';
+  let back = '', top = '';
+  if (hair === 'afro') back = `<circle cx="60" cy="40" r="38" fill="${hc}"/>`;
+  if (hair === 'long') back = `<path d="M26,52 Q24,12 60,12 Q96,12 94,52 L96,84 L84,84 L84,44 Q60,30 36,44 L36,84 L24,84Z" fill="${hc}"/>`;
+  if (hair === 'dreads') back = Array.from({ length: 8 }, (_, i) => `<line x1="${32 + i * 8}" y1="22" x2="${28 + i * 9}" y2="${74 + (i % 3) * 5}" stroke="${hc}" stroke-width="6" stroke-linecap="round"/>`).join('');
+  if (hair === 'short' || hair === 'buzz' || hair === 'dreads') top = `<path d="M30,46 Q30,16 60,16 Q90,16 90,46 Q84,30 60,29 Q36,30 30,46Z" fill="${hc}" ${hair === 'buzz' ? 'opacity=".45"' : ''}/>`;
+  if (hair === 'flat') top = `<rect x="31" y="10" width="58" height="24" rx="5" fill="${hc}"/>`;
+  if (hair === 'mohawk') top = `<rect x="54" y="4" width="12" height="28" rx="5" fill="${hc}"/>`;
+  if (hair === 'curly') top = Array.from({ length: 7 }, (_, i) => `<circle cx="${34 + i * 8.7}" cy="${22 + Math.abs(i - 3) * 3}" r="7.5" fill="${hc}"/>`).join('');
+  const E1 = 48, E2 = 72, EY = 48;
+  const lid = (x, d) => `<path d="M${x - 5},${EY + (d > 0 ? 0 : 2)} Q${x},${EY + d} ${x + 5},${EY + (d > 0 ? 0 : 2)}" stroke="${ink}" stroke-width="2.5" fill="none" stroke-linecap="round"/>`;
+  const eyeSvg = {
+    dot: `<circle cx="${E1}" cy="${EY}" r="3.2" fill="${ink}"/><circle cx="${E2}" cy="${EY}" r="3.2" fill="${ink}"/>`,
+    wide: [E1, E2].map(x => `<circle cx="${x}" cy="${EY}" r="6" fill="#fff" stroke="${ink}" stroke-width="1.5"/><circle cx="${x + 1}" cy="${EY}" r="2.6" fill="${ink}"/>`).join(''),
+    sleepy: lid(E1, 4) + lid(E2, 4),
+    angry: `<circle cx="${E1}" cy="${EY + 1}" r="3" fill="${ink}"/><circle cx="${E2}" cy="${EY + 1}" r="3" fill="${ink}"/><line x1="${E1 - 7}" y1="${EY - 9}" x2="${E1 + 5}" y2="${EY - 5}" stroke="${ink}" stroke-width="3" stroke-linecap="round"/><line x1="${E2 + 7}" y1="${EY - 9}" x2="${E2 - 5}" y2="${EY - 5}" stroke="${ink}" stroke-width="3" stroke-linecap="round"/>`,
+    happy: lid(E1, -5) + lid(E2, -5),
+  }[eyes];
+  const mouthSvg = {
+    smile: `<path d="M48,64 Q60,74 72,64" stroke="${ink}" stroke-width="2.8" fill="none" stroke-linecap="round"/>`,
+    grin: `<path d="M46,63 Q60,78 74,63 Z" fill="#fff" stroke="${ink}" stroke-width="2.2" stroke-linejoin="round"/><line x1="47" y1="64.5" x2="73" y2="64.5" stroke="${ink}" stroke-width="1"/>`,
+    flat: `<line x1="50" y1="67" x2="70" y2="67" stroke="${ink}" stroke-width="2.8" stroke-linecap="round"/>`,
+    smirk: `<path d="M50,67 Q62,70 72,61" stroke="${ink}" stroke-width="2.8" fill="none" stroke-linecap="round"/>`,
+    o: `<ellipse cx="60" cy="67" rx="4.5" ry="5.5" fill="${ink}"/>`,
+    frown: `<path d="M48,70 Q60,61 72,70" stroke="${ink}" stroke-width="2.8" fill="none" stroke-linecap="round"/>`,
+  }[mouth];
+  const jaw = 'M31,52 Q34,90 60,90 Q86,90 89,52 Q84,76 60,77 Q36,76 31,52Z';
+  const facialSvg = {
+    none: '',
+    beard: `<path d="${jaw}" fill="${hc}"/>`,
+    goatee: `<path d="M53,73 Q60,84 67,73 Z" fill="${hc}"/>`,
+    stache: `<path d="M48,60 Q60,54 72,60 Q60,63 48,60Z" fill="${hc}"/>`,
+    stubble: `<path d="${jaw}" fill="${hc}" opacity=".28"/>`,
+  }[facial];
+  return `<svg viewBox="0 0 120 170" width="96" height="136" role="img" aria-label="Placeholder portrait of ${esc(E.fullName(p))}">
+    ${back}
+    <g stroke="${limb}" stroke-width="4.5" stroke-linecap="round" fill="none">
+      <line x1="60" y1="80" x2="60" y2="134"/>
+      <line x1="60" y1="98" x2="34" y2="${armUp ? 76 : 122}"/><line x1="60" y1="98" x2="86" y2="122"/>
+      <line x1="60" y1="134" x2="44" y2="166"/><line x1="60" y1="134" x2="76" y2="166"/>
+    </g>
+    <rect x="47" y="92" width="26" height="30" rx="5" fill="${pc}"/>
+    <text x="60" y="113" text-anchor="middle" font-size="14" font-weight="800" fill="${ink}" font-family="system-ui,sans-serif">${p.num != null ? p.num : ''}</text>
+    <circle cx="30" cy="50" r="5.5" fill="${skin}" stroke="${ink}" stroke-width="1.5"/><circle cx="90" cy="50" r="5.5" fill="${skin}" stroke="${ink}" stroke-width="1.5"/>
+    <circle cx="60" cy="48" r="31" fill="${skin}" stroke="${ink}" stroke-width="2"/>
+    ${facialSvg}${top}
+    ${headband ? `<rect x="29" y="30" width="62" height="6" rx="2" fill="${pc}"/>` : ''}
+    ${eyeSvg}
+    ${eyeBlack ? `<rect x="${E1 - 6}" y="${EY + 6}" width="12" height="4" rx="1" fill="${ink}"/><rect x="${E2 - 6}" y="${EY + 6}" width="12" height="4" rx="1" fill="${ink}"/>` : ''}
+    <path d="M60,52 Q56,60 61,60" stroke="${ink}" stroke-width="1.8" fill="none" stroke-linecap="round"/>
+    ${mouthSvg}
+  </svg>`;
 }
 
 function teamCard(t) {
@@ -643,6 +786,15 @@ function landReel(el, wrap, entry, quiet) {
   return pts;
 }
 
+function showStatLine(sel, entry, week) {
+  if (!entry) return;
+  const p = E.P(entry[0]);
+  const sm = document.querySelector(sel + ' small');
+  if (!p || !sm || !p.st || p.st[week - 1] === undefined) return;
+  sm.textContent = E.statLine(p.st[week - 1], p.pos);
+  sm.classList.add('statline');
+}
+
 async function runGameDay(A, B, week, token, animate) {
   const l = L();
   const alive = () => token === GD.token;
@@ -660,11 +812,13 @@ async function runGameDay(A, B, week, token, animate) {
     clearInterval(iva);
     const va = landReel(ra, $(`#rwa-${i}`), A.lu[i], GD.skip);
     setTotal(ta, sa, sa + va, GD.skip ? 0 : 450); sa += va;
+    showStatLine(`#gpa-${i}`, A.lu[i], week);
     await gdSleep(380);
     if (!alive()) return;
     clearInterval(ivb);
     const vb = landReel(rb, $(`#rwb-${i}`), B.lu[i], GD.skip);
     setTotal(tb, sb, sb + vb, GD.skip ? 0 : 450); sb += vb;
+    showStatLine(`#gpb-${i}`, B.lu[i], week);
     if (va !== vb) {
       (va > vb ? ra : rb).classList.add('win');
       $(va > vb ? `#gpa-${i}` : `#gpb-${i}`).classList.add('w');
@@ -754,7 +908,8 @@ function simMany(mode) {
 const actions = {
   tab: el => { UI.tab = el.dataset.tab; closeModal(); window.scrollTo(0, 0); },
   create: () => {
-    E.newLeague({ teamName: $('#s-name').value, numTeams: +$('#s-n').value, difficulty: $('#s-d').value });
+    captureSetup();
+    E.newLeague({ teamName: UI.setup.name, numTeams: UI.setup.n, difficulty: UI.setup.d, scoring: UI.setup.scoring });
     Object.assign(UI, { tab: 'draft', trade: { partner: null, give: [], get: [], msg: null, ok: false, hl: [] }, histDraft: null, week: null });
     E.draftAdvance(true);
   },
@@ -844,7 +999,23 @@ function afterDraftCheck() {
   }
 }
 
+function applyScoring(scope, S) {
+  if (scope === 'setup') { captureSetup(); UI.setup.scoring = S; return; }
+  if (!scoringEditable()) { toast('Scoring is locked during the season.'); return; }
+  E.setScoring(S);
+  toast('Scoring updated.');
+}
 const changes = {
+  sc: el => {
+    const scope = el.dataset.scope;
+    const S = Object.assign({}, scope === 'setup' ? UI.setup.scoring : L().settings.scoring);
+    let v = parseFloat(el.value);
+    if (!isFinite(v)) v = 0;
+    if (el.dataset.t === 'ypp') v = v > 0 ? 1 / v : 0;
+    S[el.dataset.k] = v;
+    applyScoring(scope, S);
+  },
+  scpreset: el => { if (el.value !== 'custom') applyScoring(el.dataset.scope, E.presetScoring(el.value)); },
   slot: el => {
     const u = user(), i = +el.dataset.i, id = el.value === '' ? null : +el.value;
     if (id != null) u.lineup = u.lineup.map((x, j) => (x === id && j !== i ? null : x));

@@ -14,8 +14,10 @@ Every player, rookie class, career arc and league is procedurally generated. No 
 - **CPU managers with personalities** — each team is *Contending*, *Balanced* or *Rebuilding*, which changes how it values vets versus youth and picks. CPU teams send you offers and trade with each other.
 - **Season over season** — players develop toward their potential, peak, decline (RBs fall off earlier than QBs), get hurt, and retire.
 - **Free agency** — sign and release players. Undrafted rookies hit the waiver pool.
-- **Real NFL teams** — every generated player plays for one of the 32 NFL teams; veterans sometimes change teams in the offseason.
+- **Real NFL teams** — every generated player plays for one of the 32 NFL teams (veterans sometimes change teams in the offseason) and has a hometown, jersey number, play-style traits and a placeholder stick-figure portrait.
 - **Realistic injuries** — position-based rates (RBs miss ~3 games a season, WR/TE ~2, QB ~1.5), named injuries from a 1-game ankle sprain to a season-ending torn ACL, expected return timelines, occasional setbacks, and lingering effects from major injuries. Injuries show up in the end-of-game injury report.
+- **Real box scores** — every game simulates actual stat lines (completions, yards, TDs, INTs, carries, targets, receptions, return yards, fumbles, first downs) and scores them with your league settings. Player cards show a game log and career stat totals.
+- **Custom scoring** — presets (Standard, Half PPR, Full PPR, PPR + TE Premium, 6-pt passing TD) or fully custom: yardage rates, TDs, INTs, completions, PPR, TE premium, kick/punt return yards and TDs, first downs, 2-pt conversions, fumbles and 100/300-yard bonuses. Projections and trade values adapt to your scoring.
 - **Lineups** — QB, 2 RB, 2 WR, TE, FLEX. Auto-set or manage it each week.
 - **Game day** — single-week sims play out slot by slot on slot-machine reels (jackpots, injuries, confetti). Box scores and replays for every game.
 - **14-week season, 4-team playoffs**, MVP and Rookie of the Year awards, champions list, draft history and retired legends.
