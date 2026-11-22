@@ -162,12 +162,21 @@ function matchupCard() {
     const g = l.results[w - 2].find(g => g.a === l.userId || g.b === l.userId);
     if (g) {
       const mine = g.a === l.userId ? g.sa : g.sb, th = g.a === l.userId ? g.sb : g.sa, o = g.a === l.userId ? g.b : g.a;
-      last = `<p class="muted">Last week: <b style="color:${mine > th ? 'var(--accent)' : 'var(--bad)'}">${mine > th ? 'W' : mine < th ? 'L' : 'T'}</b> ${mine.toFixed(1)}–${th.toFixed(1)} vs ${teamName(o)}</p>`;
+      last = `<p class="muted">Last week: <b style="color:${mine > th ? 'var(--accent)' : 'var(--bad)'}">${mine > th ? 'W' : mine < th ? 'L' : 'T'}</b> ${mine.toFixed(1)}–${th.toFixed(1)} vs ${teamName(o)} · <a data-act="replay" data-w="${w - 1}">▶ Replay</a></p>`;
     }
   }
   if (opp == null) return `<div class="card"><h2>This week</h2><p class="muted">No game this week.</p>${last}</div>`;
   const ot = E.T(opp);
-  const projOf = t => (t.human && !t.autoLineup ? t.lineup : E.bestLineup(t)).reduce((s, id) => s + (id != null ? E.proj(E.P(id)) : 0), 0);
+  const luOf = t => (t.human && !t.autoLineup ? t.lineup : E.bestLineup(t));
+  const projOf = t => luOf(t).reduce((s, id) => s + (id != null ? E.proj(E.P(id)) : 0), 0);
+  const la = luOf(u), lb = luOf(ot);
+  const h2h = E.SLOTS.map((s, i) => {
+    const pa = la[i] != null ? E.P(la[i]) : null, pb = lb[i] != null ? E.P(lb[i]) : null;
+    const ja = pa ? E.proj(pa) : 0, jb = pb ? E.proj(pb) : 0;
+    return `<div class="h2h-row"><div class="l">${pa ? pLink(pa) + statusBadges(pa) : '<span class="muted">empty</span>'}</div>
+      <div class="pj ${ja > jb ? 'edge' : ''}">${ja.toFixed(1)}</div><div style="text-align:center">${posTag(s)}</div>
+      <div class="pj ${jb > ja ? 'edge' : ''}">${jb.toFixed(1)}</div><div class="r">${pb ? pLink(pb) + statusBadges(pb) : '<span class="muted">empty</span>'}</div></div>`;
+  }).join('');
   const empties = u.lineup.filter(id => id == null).length;
   const injStarters = u.lineup.filter(id => id != null && E.P(id).inj > 0).length;
   return `<div class="card"><h2>${l.phase === 'playoffs' ? 'Playoff matchup' : `Week ${w} matchup`}</h2>
@@ -176,6 +185,7 @@ function matchupCard() {
       <div class="vs">vs</div>
       <div><div>${teamName(ot.id)}</div><div class="muted">${rec(ot)} ${modeBadge(ot.mode)}</div><div class="score">${projOf(ot).toFixed(1)}</div><div class="muted">projected</div></div>
     </div>
+    <div class="h2h">${h2h}</div>
     ${!u.autoLineup && (empties || injStarters) ? `<div class="msg no">⚠ Your lineup has ${empties ? empties + ' empty slot(s)' : ''}${empties && injStarters ? ' and ' : ''}${injStarters ? injStarters + ' injured starter(s)' : ''}. <a data-act="tab" data-tab="roster">Fix lineup</a></div>` : ''}
     ${last}</div>`;
 }
@@ -411,7 +421,7 @@ function scheduleView() {
   const games = l.schedule[w - 1].map(([a, b], i) => {
     const r = res && res[i];
     const line = (id, s, win) => `<div class="t ${win ? 'w' : ''}"><span>${teamName(id)} <span class="muted">${rec(E.T(id))}</span></span><span>${s != null ? s.toFixed(1) : ''}</span></div>`;
-    return `<div class="bgame">${line(a, r ? r.sa : null, r && r.sa > r.sb)}${line(b, r ? r.sb : null, r && r.sb > r.sa)}</div>`;
+    return `<div class="bgame">${line(a, r ? r.sa : null, r && r.sa > r.sb)}${line(b, r ? r.sb : null, r && r.sb > r.sa)}${r && r.la ? `<div style="text-align:right;font-size:12px"><a data-act="box" data-w="${w}" data-i="${i}">Box score</a> · <a data-act="box" data-w="${w}" data-i="${i}" data-anim="1">▶ Watch</a></div>` : ''}</div>`;
   }).join('');
   return `<div class="card"><h2>Week ${w}</h2><div class="row" style="margin-bottom:10px">${Array.from({ length: C.REG_WEEKS }, (_, i) => `<button class="sm ${i + 1 === w ? 'blue' : ''}" data-act="wk" data-w="${i + 1}">${i + 1}</button>`).join('')}</div><div class="grid g2">${games}</div></div>`;
 }
@@ -419,10 +429,10 @@ function scheduleView() {
 function playoffsView() {
   const l = L(), pl = l.playoffs;
   if (!pl) return `<div class="card"><p class="muted">Playoffs begin after week ${C.REG_WEEKS}. Top ${C.PLAYOFF_TEAMS} teams qualify.</p></div>`;
-  const g = (a, b, r) => `<div class="bgame"><div class="t ${r && r.sa > r.sb ? 'w' : ''}"><span>#${pl.seeds.indexOf(a) + 1} ${teamName(a)}</span><span>${r ? r.sa.toFixed(1) : ''}</span></div><div class="t ${r && r.sb > r.sa ? 'w' : ''}"><span>#${pl.seeds.indexOf(b) + 1} ${teamName(b)}</span><span>${r ? r.sb.toFixed(1) : ''}</span></div></div>`;
+  const g = (a, b, r, w, i) => `<div class="bgame"><div class="t ${r && r.sa > r.sb ? 'w' : ''}"><span>#${pl.seeds.indexOf(a) + 1} ${teamName(a)}</span><span>${r ? r.sa.toFixed(1) : ''}</span></div><div class="t ${r && r.sb > r.sa ? 'w' : ''}"><span>#${pl.seeds.indexOf(b) + 1} ${teamName(b)}</span><span>${r ? r.sb.toFixed(1) : ''}</span></div>${r && r.la ? `<div style="text-align:right;font-size:12px"><a data-act="box" data-w="${w}" data-i="${i}">Box score</a> · <a data-act="box" data-w="${w}" data-i="${i}" data-anim="1">▶ Watch</a></div>` : ''}</div>`;
   return `<div class="card"><h2>${l.year} Playoffs</h2><div class="bracket">
-    <div><h3>Semifinals</h3>${pl.semis.map((s, i) => g(s[0], s[1], pl.semiRes && pl.semiRes[i])).join('')}</div>
-    <div><h3>Championship</h3>${pl.final ? g(pl.final[0], pl.final[1], pl.finalRes) : '<p class="muted">TBD</p>'}${pl.champ != null ? `<p style="font-size:18px">🏆 <b>${teamName(pl.champ)}</b></p>` : ''}</div>
+    <div><h3>Semifinals</h3>${pl.semis.map((s, i) => g(s[0], s[1], pl.semiRes && pl.semiRes[i], C.REG_WEEKS + 1, i)).join('')}</div>
+    <div><h3>Championship</h3>${pl.final ? g(pl.final[0], pl.final[1], pl.finalRes, C.REG_WEEKS + 2, 0) : '<p class="muted">TBD</p>'}${pl.champ != null ? `<p style="font-size:18px">🏆 <b>${teamName(pl.champ)}</b></p>` : ''}</div>
   </div></div>`;
 }
 
@@ -510,10 +520,189 @@ function teamCard(t) {
     ${!t.human ? `<button class="blue" data-act="tradeWith" data-id="${t.id}">Trade with ${esc(t.abbr)}</button>` : ''}`;
 }
 
+// ---------- game day (slot machine) ----------
+const GD = { token: 0, skip: false, wake: null, timers: [] };
+const gdSleep = ms => new Promise(r => {
+  if (GD.skip) return r();
+  const t = setTimeout(r, ms);
+  GD.wake = () => { clearTimeout(t); r(); };
+});
+const gdTitle = w => (w === C.REG_WEEKS + 1 ? 'Playoff Semifinal' : w === C.REG_WEEKS + 2 ? 'Championship Game' : `Week ${w}`);
+
+function showGameDay(res, week, animate = true) {
+  const l = L();
+  if (!res || !res.la) { toast('No box score saved for that game.'); return; }
+  const flip = res.b === l.userId;
+  const A = flip ? { id: res.b, lu: res.lb, s: res.sb } : { id: res.a, lu: res.la, s: res.sa };
+  const B = flip ? { id: res.a, lu: res.la, s: res.sa } : { id: res.b, lu: res.lb, s: res.sb };
+  const name = e => { if (!e) return '<span class="muted">— empty —</span>'; const p = E.P(e[0]); return p ? esc(E.fullName(p)) : '<span class="muted">(retired)</span>'; };
+  const sub = e => { if (!e) return ''; const p = E.P(e[0]); return `<small>${p ? p.pos + ' · ' : ''}proj ${e[2] != null ? e[2].toFixed(1) : '—'}</small>`; };
+  const rows = E.SLOTS.map((s, i) => `<div class="gd-row" id="gdr-${i}">
+      <div class="gd-p l" id="gpa-${i}">${name(A.lu[i])}${sub(A.lu[i])}</div>
+      <div class="reelwrap" id="rwa-${i}"><div class="reel" id="ra-${i}"><span class="num">?</span></div></div>
+      <div class="gd-slot">${posTag(s)}</div>
+      <div class="reelwrap" id="rwb-${i}"><div class="reel" id="rb-${i}"><span class="num">?</span></div></div>
+      <div class="gd-p" id="gpb-${i}">${name(B.lu[i])}${sub(B.lu[i])}</div></div>`).join('');
+  const box = $('#gameday');
+  box.innerHTML = `<div class="gd-box">
+    <div class="gd-title">${l.year} · ${gdTitle(week)}</div>
+    <div class="gd-head">
+      <div><div class="gd-team">${esc(E.T(A.id).name)}</div><div class="gd-total" id="gta">0.0</div></div>
+      <div class="gd-vs">VS</div>
+      <div><div class="gd-team">${esc(E.T(B.id).name)}</div><div class="gd-total" id="gtb">0.0</div></div>
+    </div>
+    ${rows}
+    <div id="gd-end"></div>
+    <div class="gd-btns" id="gd-btns">${animate ? '<button data-act="gdSkip">Skip ⏩</button>' : ''}<button class="primary" data-act="gdClose">${animate ? 'Close' : 'Close'}</button></div>
+  </div>`;
+  box.classList.remove('hidden');
+  box.scrollTop = 0;
+  GD.skip = !animate;
+  const token = ++GD.token;
+  runGameDay(A, B, week, token, animate);
+}
+
+function setTotal(el, from, to, ms) {
+  if (ms <= 0 || GD.skip) { el.textContent = to.toFixed(1); return; }
+  const t0 = performance.now();
+  const step = now => {
+    const k = Math.min(1, (now - t0) / ms);
+    el.textContent = (from + (to - from) * (1 - Math.pow(1 - k, 3))).toFixed(1);
+    if (k < 1) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
+
+function sparks(wrap, color, n = 14) {
+  for (let i = 0; i < n; i++) {
+    const s = document.createElement('span');
+    s.className = 'spark-p';
+    const ang = (Math.PI * 2 * i) / n + Math.random() * 0.4, dist = 40 + Math.random() * 40;
+    s.style.setProperty('--dx', `${Math.cos(ang) * dist}px`);
+    s.style.setProperty('--dy', `${Math.sin(ang) * dist}px`);
+    s.style.background = color;
+    wrap.appendChild(s);
+    setTimeout(() => s.remove(), 800);
+  }
+}
+
+function confetti(n = 120) {
+  const cols = ['#22c55e', '#fbbf24', '#3b82f6', '#ec4899', '#f97316', '#a855f7', '#fff'];
+  for (let i = 0; i < n; i++) {
+    const c = document.createElement('div');
+    c.className = 'confetti';
+    c.style.left = Math.random() * 100 + 'vw';
+    c.style.background = cols[i % cols.length];
+    c.style.animationDuration = 2 + Math.random() * 2.5 + 's';
+    c.style.animationDelay = Math.random() * 0.8 + 's';
+    c.style.borderRadius = Math.random() < 0.3 ? '50%' : '2px';
+    document.body.appendChild(c);
+    setTimeout(() => c.remove(), 5500);
+  }
+}
+
+function spinReel(el) {
+  el.className = 'reel spinning';
+  const num = el.querySelector('.num');
+  const iv = setInterval(() => { num.textContent = (Math.random() * 35).toFixed(1); }, 55);
+  GD.timers.push(iv);
+  return iv;
+}
+
+// reveal one player's score on a reel; returns points
+function landReel(el, wrap, entry, quiet) {
+  const num = el.querySelector('.num');
+  el.className = 'reel land';
+  if (!entry) { num.textContent = '—'; el.classList.add('out'); return 0; }
+  const [, pts, pj] = entry;
+  if (pts == null) { num.textContent = 'OUT'; el.classList.add('out'); return 0; }
+  num.textContent = pts.toFixed(1);
+  const proj = pj || 5;
+  if (pts >= Math.max(20, proj * 1.6)) {
+    el.classList.add('jackpot');
+    wrap.insertAdjacentHTML('beforeend', '<span class="tag">💥</span><span class="jp">JACKPOT</span>');
+    if (!quiet) { sparks(wrap, '#fde047', 18); const gd = $('#gameday'); gd.classList.remove('shake'); void gd.offsetWidth; gd.classList.add('shake'); }
+  } else if (pts >= proj * 1.2) {
+    el.classList.add('hot');
+    wrap.insertAdjacentHTML('beforeend', '<span class="tag">🔥</span>');
+    if (!quiet) sparks(wrap, '#4ade80', 10);
+  } else if (pts < proj * 0.5) {
+    el.classList.add('cold');
+    wrap.insertAdjacentHTML('beforeend', '<span class="tag">🥶</span>');
+  }
+  return pts;
+}
+
+async function runGameDay(A, B, week, token, animate) {
+  const l = L();
+  const alive = () => token === GD.token;
+  const ta = $('#gta'), tb = $('#gtb');
+  let sa = 0, sb = 0;
+  await gdSleep(500);
+  for (let i = 0; i < E.SLOTS.length; i++) {
+    if (!alive()) return;
+    const row = $(`#gdr-${i}`), ra = $(`#ra-${i}`), rb = $(`#rb-${i}`);
+    row.classList.add('active');
+    const fast = GD.skip;
+    const iva = fast ? null : spinReel(ra), ivb = fast ? null : spinReel(rb);
+    await gdSleep(800);
+    if (!alive()) return;
+    clearInterval(iva);
+    const va = landReel(ra, $(`#rwa-${i}`), A.lu[i], GD.skip);
+    setTotal(ta, sa, sa + va, GD.skip ? 0 : 450); sa += va;
+    await gdSleep(380);
+    if (!alive()) return;
+    clearInterval(ivb);
+    const vb = landReel(rb, $(`#rwb-${i}`), B.lu[i], GD.skip);
+    setTotal(tb, sb, sb + vb, GD.skip ? 0 : 450); sb += vb;
+    if (va !== vb) {
+      (va > vb ? ra : rb).classList.add('win');
+      $(va > vb ? `#gpa-${i}` : `#gpb-${i}`).classList.add('w');
+    }
+    ta.classList.toggle('lead', sa > sb);
+    tb.classList.toggle('lead', sb > sa);
+    row.classList.remove('active');
+    row.classList.add('done');
+    await gdSleep(450);
+  }
+  if (!alive()) return;
+  // final: use the official scores
+  ta.textContent = A.s.toFixed(1); tb.textContent = B.s.toFixed(1);
+  ta.classList.toggle('lead', A.s > B.s); tb.classList.toggle('lead', B.s > A.s);
+  const userIn = A.id === l.userId;
+  const won = A.s > B.s || (A.s === B.s && l.playoffs && l.playoffs.seeds.indexOf(A.id) < l.playoffs.seeds.indexOf(B.id) && week > C.REG_WEEKS);
+  const champ = week === C.REG_WEEKS + 2;
+  let cls, text;
+  if (!userIn) { cls = 'win'; text = `${esc(E.T(won ? A.id : B.id).abbr)} WIN`; }
+  else if (A.s === B.s && week <= C.REG_WEEKS) { cls = 'loss'; text = 'TIE'; }
+  else if (won) { cls = champ ? 'champ' : 'win'; text = champ ? '🏆 CHAMPIONS! 🏆' : 'VICTORY'; }
+  else { cls = 'loss'; text = champ ? 'RUNNER-UP' : 'DEFEAT'; }
+  const margin = Math.abs(A.s - B.s);
+  $('#gd-end').innerHTML = `<div class="gd-banner ${cls}">${text}</div><div class="gd-sub">${A.s.toFixed(1)} – ${B.s.toFixed(1)}${margin > 0 && margin < 5 ? ' · a nail-biter!' : margin >= 40 ? ' · a blowout' : ''}</div>`;
+  $('#gd-btns').innerHTML = `<button class="primary" data-act="gdClose">Continue</button>`;
+  if (animate && userIn && won) confetti(champ ? 260 : 110);
+}
+
+function closeGameDay() {
+  GD.token++;
+  GD.skip = true;
+  if (GD.wake) GD.wake();
+  GD.timers.forEach(clearInterval);
+  GD.timers = [];
+  $('#gameday').classList.add('hidden');
+  $('#gameday').innerHTML = '';
+}
+
+function findGame(w, teamId) {
+  const r = L().results[w - 1];
+  return r ? r.find(g => g.a === teamId || g.b === teamId) : null;
+}
+
 // ---------- actions ----------
 function simMany(mode) {
   const l = L();
   const startOffers = l.offers.length;
+  const w0 = l.week;
   let n = 0;
   while (true) {
     if (l.phase !== 'regular' && l.phase !== 'playoffs') break;
@@ -526,6 +715,11 @@ function simMany(mode) {
     if (mode !== 1 && l.offers.length > startOffers) { toast('📨 You received a trade offer — sim paused.'); break; }
   }
   UI.week = null;
+  if (mode === 1 && n === 1) {
+    const g = findGame(w0, l.userId);
+    if (g) showGameDay(g, w0, true);
+    else if (w0 > C.REG_WEEKS) { const r = l.results[w0 - 1]; if (r && r.length === 1) showGameDay(r[0], w0, true); }
+  }
 }
 
 const actions = {
@@ -607,6 +801,10 @@ const actions = {
   sort: el => { const k = el.dataset.k; if (UI.players.sort === k) UI.players.dir *= -1; else { UI.players.sort = k; UI.players.dir = -1; } },
   lsub: el => { UI.league = el.dataset.k; },
   wk: el => { UI.week = +el.dataset.w; },
+  gdSkip: () => { GD.skip = true; GD.timers.forEach(clearInterval); if (GD.wake) GD.wake(); },
+  gdClose: closeGameDay,
+  replay: el => { const g = findGame(+el.dataset.w, L().userId); if (g) showGameDay(g, +el.dataset.w, true); },
+  box: el => { const r = L().results[+el.dataset.w - 1]; if (r && r[+el.dataset.i]) showGameDay(r[+el.dataset.i], +el.dataset.w, el.dataset.anim === '1'); },
 };
 
 function afterDraftCheck() {
@@ -662,7 +860,11 @@ document.addEventListener('input', e => {
     }, 250);
   }
 });
-document.addEventListener('keydown', e => { if (e.key === 'Escape' && UI.modal) { closeModal(); } });
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  if (!$('#gameday').classList.contains('hidden')) closeGameDay();
+  else if (UI.modal) closeModal();
+});
 
 loadSave();
 render();

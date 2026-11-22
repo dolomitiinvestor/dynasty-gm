@@ -579,7 +579,9 @@ function simWeek() {
   const play = (a, b) => {
     const ta = T(a), tb = T(b);
     const sa = lineupScore(ta, w), sb = lineupScore(tb, w);
-    return { a, b, sa, sb };
+    // snapshot of each lineup: [playerId, points (null = injured/out), projection] per slot
+    const snap = t => t.lineup.map(id => (id != null ? [id, P(id).wk[w - 1], Math.round(ppg(P(id).ovr, P(id).pos) * 10) / 10] : null));
+    return { a, b, sa, sb, la: snap(ta), lb: snap(tb) };
   };
 
   if (L.phase === 'regular') {
