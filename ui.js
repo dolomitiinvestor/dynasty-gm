@@ -28,9 +28,13 @@ const val = p => Math.round(E.playerValue(p, 'balanced', 'public'));
 const teamAbbr = id => (id == null ? '<span class="muted">FA</span>' : `<a data-act="team" data-id="${id}"><span class="teamdot" style="background:${E.T(id).color}"></span>${esc(E.T(id).abbr)}</a>`);
 const teamName = id => `<a data-act="team" data-id="${id}"><span class="teamdot" style="background:${E.T(id).color}"></span>${esc(E.T(id).name)}</a>`;
 const pLink = p => `<a data-act="player" data-id="${p.id}">${esc(E.fullName(p))}</a>`;
+const nflTag = p => (p.nfl ? ` <span class="nfl" title="${esc(E.NFL[p.nfl] || p.nfl)}">${p.nfl}</span>` : '');
 function statusBadges(p) {
   let s = '';
-  if (p.inj > 0) s += ` <span class="badge inj">OUT ${p.inj}w</span>`;
+  if (p.inj > 0) {
+    const i = p.injury;
+    s += i ? ` <span class="badge inj" title="${esc(i.name)} — ${esc(i.est)}">🚑 ${i.season ? 'IR' : 'OUT ' + esc(i.short)}</span>` : ' <span class="badge inj">OUT</span>';
+  }
   if (p.rookieYear === L().year) s += ' <span class="badge rook">R</span>';
   return s;
 }
@@ -173,9 +177,9 @@ function matchupCard() {
   const h2h = E.SLOTS.map((s, i) => {
     const pa = la[i] != null ? E.P(la[i]) : null, pb = lb[i] != null ? E.P(lb[i]) : null;
     const ja = pa ? E.proj(pa) : 0, jb = pb ? E.proj(pb) : 0;
-    return `<div class="h2h-row"><div class="l">${pa ? pLink(pa) + statusBadges(pa) : '<span class="muted">empty</span>'}</div>
+    return `<div class="h2h-row"><div class="l">${pa ? pLink(pa) + nflTag(pa) + statusBadges(pa) : '<span class="muted">empty</span>'}</div>
       <div class="pj ${ja > jb ? 'edge' : ''}">${ja.toFixed(1)}</div><div style="text-align:center">${posTag(s)}</div>
-      <div class="pj ${jb > ja ? 'edge' : ''}">${jb.toFixed(1)}</div><div class="r">${pb ? pLink(pb) + statusBadges(pb) : '<span class="muted">empty</span>'}</div></div>`;
+      <div class="pj ${jb > ja ? 'edge' : ''}">${jb.toFixed(1)}</div><div class="r">${pb ? pLink(pb) + nflTag(pb) + statusBadges(pb) : '<span class="muted">empty</span>'}</div></div>`;
   }).join('');
   const empties = u.lineup.filter(id => id == null).length;
   const injStarters = u.lineup.filter(id => id != null && E.P(id).inj > 0).length;
@@ -219,7 +223,7 @@ function offersCard() {
 }
 
 function assetLine(a) {
-  if (a.kind === 'p') { const p = E.P(a.id); return `<div>${posTag(p.pos)} ${pLink(p)} <span class="muted">${p.age}y · ${ovrStr(p)} ovr</span> <span class="muted">· ${val(p)}</span></div>`; }
+  if (a.kind === 'p') { const p = E.P(a.id); return `<div>${posTag(p.pos)} ${pLink(p)}${nflTag(p)}${statusBadges(p)} <span class="muted">${p.age}y · ${ovrStr(p)} ovr</span> <span class="muted">· ${val(p)}</span></div>`; }
   const k = L().picks.find(x => x.id === a.id);
   return `<div><span class="pos" style="background:#94a3b8">PK</span> ${esc(E.pickLabel(k))} <span class="muted">· ${Math.round(E.pickValue(k))}</span></div>`;
 }
@@ -277,7 +281,7 @@ function playerTable(list, opts = {}) {
   const th = (k, label, num = true) => sortable ? `<th class="sort ${num ? 'num' : ''}" data-act="sort" data-k="${k}">${label}${UI.players.sort === k ? (UI.players.dir < 0 ? ' ▼' : ' ▲') : ''}</th>` : `<th class="${num ? 'num' : ''}">${label}</th>`;
   const inSeason = l.phase === 'regular' || l.phase === 'playoffs' || l.phase === 'offseason';
   return `<div class="tbl-wrap"><table><thead><tr><th>Pos</th><th>Player</th>${showTeam ? '<th>Team</th>' : ''}${th('age', 'Age')}${th('ovr', 'OVR')}${th('pot', 'POT')}${th('proj', 'Proj')}${inSeason ? th('pts', 'Pts') : ''}${th('value', 'Value')}<th></th></tr></thead><tbody>
-    ${list.map(p => `<tr class="${opts.starters && opts.starters.has(p.id) ? 'sel' : ''}"><td>${posTag(p.pos)}</td><td>${pLink(p)}${statusBadges(p)}</td>${showTeam ? `<td>${teamAbbr(p.teamId)}</td>` : ''}
+    ${list.map(p => `<tr class="${opts.starters && opts.starters.has(p.id) ? 'sel' : ''}"><td>${posTag(p.pos)}</td><td>${pLink(p)}${nflTag(p)}${statusBadges(p)}</td>${showTeam ? `<td>${teamAbbr(p.teamId)}</td>` : ''}
       <td class="num">${p.age}</td><td class="num">${ovrStr(p)}</td><td class="num">${potStr(p)}</td><td class="num">${projStr(p)}</td>${inSeason ? `<td class="num">${E.seasonPts(p).toFixed(1)}</td>` : ''}<td class="num">${val(p)}</td>
       <td>${actionFor(p)}</td></tr>`).join('')}
   </tbody></table></div>`;
@@ -327,7 +331,7 @@ function viewTrade() {
     const hl = side === 'give' && has(tr.hl, a);
     if (a.kind === 'p') {
       const p = E.P(a.id);
-      return `<div class="asset ${on ? 'on' : ''} ${hl ? 'hl' : ''}" data-act="tsel" data-side="${side}" data-kind="p" data-id="${p.id}"><input type="checkbox" ${on ? 'checked' : ''} tabindex="-1">${posTag(p.pos)}<span>${esc(E.fullName(p))}${statusBadges(p)} <span class="muted">${p.age}y · ${p.ovr}</span></span><span class="v">${val(p)}</span></div>`;
+      return `<div class="asset ${on ? 'on' : ''} ${hl ? 'hl' : ''}" data-act="tsel" data-side="${side}" data-kind="p" data-id="${p.id}"><input type="checkbox" ${on ? 'checked' : ''} tabindex="-1">${posTag(p.pos)}<span>${esc(E.fullName(p))}${nflTag(p)}${statusBadges(p)} <span class="muted">${p.age}y · ${p.ovr}</span></span><span class="v">${val(p)}</span></div>`;
     }
     const k = l.picks.find(x => x.id === a.id);
     return `<div class="asset ${on ? 'on' : ''} ${hl ? 'hl' : ''}" data-act="tsel" data-side="${side}" data-kind="k" data-id="${k.id}"><input type="checkbox" ${on ? 'checked' : ''} tabindex="-1"><span class="pos" style="background:#94a3b8">PK</span><span>${esc(E.pickLabel(k))}</span><span class="v">${Math.round(E.pickValue(k))}</span></div>`;
@@ -386,7 +390,7 @@ function viewDraft() {
       </div>
       ${d.type === 'rookie' ? '<p class="muted" style="font-size:12px">OVR and POT for rookies are scouting estimates. True ratings are revealed when the draft ends.</p>' : ''}
       <div class="tbl-wrap"><table><thead><tr><th>Pos</th><th>Player</th><th class="num">Age</th><th>College</th><th class="num">OVR</th><th class="num">POT</th><th class="num">Proj</th><th class="num">Value</th><th></th></tr></thead><tbody>
-        ${pool.map(p => `<tr><td>${posTag(p.pos)}</td><td>${pLink(p)}</td><td class="num">${p.age}</td><td class="muted">${esc(p.college)}</td><td class="num">${ovrStr(p)}</td><td class="num">${potStr(p)}</td><td class="num">${projStr(p)}</td><td class="num">${Math.round(pv(p))}</td>
+        ${pool.map(p => `<tr><td>${posTag(p.pos)}</td><td>${pLink(p)}${nflTag(p)}</td><td class="num">${p.age}</td><td class="muted">${esc(p.college)}</td><td class="num">${ovrStr(p)}</td><td class="num">${potStr(p)}</td><td class="num">${projStr(p)}</td><td class="num">${Math.round(pv(p))}</td>
           <td>${myTurn ? `<button class="sm primary" data-act="draftP" data-id="${p.id}">Draft</button>` : ''}</td></tr>`).join('')}
       </tbody></table></div>
     </div>
@@ -443,7 +447,7 @@ function leadersView() {
   const metric = hasPts ? E.seasonPts : p => E.playerValue(p, 'balanced', 'public');
   return `<div class="grid g2">${E.POS.map(pos => {
     const top = all.filter(p => p.pos === pos && (p.revealed || p.teamId != null)).sort((a, b) => metric(b) - metric(a)).slice(0, 10);
-    return `<div class="card"><h2>${posTag(pos)} ${hasPts ? 'Fantasy points' : 'Top value'}</h2><table><tbody>${top.map((p, i) => `<tr><td>${i + 1}</td><td>${pLink(p)}${statusBadges(p)}</td><td>${teamAbbr(p.teamId)}</td><td class="num">${hasPts ? E.seasonPts(p).toFixed(1) : Math.round(metric(p))}</td></tr>`).join('')}</tbody></table></div>`;
+    return `<div class="card"><h2>${posTag(pos)} ${hasPts ? 'Fantasy points' : 'Top value'}</h2><table><tbody>${top.map((p, i) => `<tr><td>${i + 1}</td><td>${pLink(p)}${nflTag(p)}${statusBadges(p)}</td><td>${teamAbbr(p.teamId)}</td><td class="num">${hasPts ? E.seasonPts(p).toFixed(1) : Math.round(metric(p))}</td></tr>`).join('')}</tbody></table></div>`;
   }).join('')}</div>`;
 }
 
@@ -492,7 +496,8 @@ function playerCard(p) {
   const career = p.hist.reduce((s, h) => s + h.pts, 0);
   return `<div class="pcard-head"><div class="bigpos" style="background:${colors[p.pos]}">${p.pos}</div>
     <div><div style="font-size:22px;font-weight:800">${esc(E.fullName(p))}${statusBadges(p)}</div>
-    <div class="muted">${p.teamId != null ? teamName(p.teamId) : 'Free agent'} · Age ${p.age} · ${esc(p.college)} · ${draftTxt}</div></div></div>
+    <div class="muted">${p.nfl ? `<b style="color:var(--text)">${esc(E.NFL[p.nfl] || p.nfl)}</b> · ` : ''}Fantasy: ${p.teamId != null ? teamName(p.teamId) : 'Free agent'} · Age ${p.age} · ${esc(p.college)} · ${draftTxt}</div></div></div>
+    ${p.inj > 0 && p.injury ? `<div class="msg no">🚑 <b>${esc(p.injury.name)}</b> (week ${p.injury.week}) — ${esc(p.injury.est)}${p.injury.season ? '. Placed on injured reserve.' : ''}${p.injury.carry ? ' Serious injury: may lose some ability next season.' : ''}</div>` : ''}
     <div class="stats">
       <div class="stat"><div class="k">Overall</div><div class="v">${ovrStr(p)}</div></div>
       <div class="stat"><div class="k">Potential</div><div class="v">${potStr(p)}</div></div>
@@ -533,10 +538,10 @@ function showGameDay(res, week, animate = true) {
   const l = L();
   if (!res || !res.la) { toast('No box score saved for that game.'); return; }
   const flip = res.b === l.userId;
-  const A = flip ? { id: res.b, lu: res.lb, s: res.sb } : { id: res.a, lu: res.la, s: res.sa };
+  const A = flip ? { id: res.b, lu: res.lb, s: res.sb, yr: res.year } : { id: res.a, lu: res.la, s: res.sa, yr: res.year };
   const B = flip ? { id: res.a, lu: res.la, s: res.sa } : { id: res.b, lu: res.lb, s: res.sb };
   const name = e => { if (!e) return '<span class="muted">— empty —</span>'; const p = E.P(e[0]); return p ? esc(E.fullName(p)) : '<span class="muted">(retired)</span>'; };
-  const sub = e => { if (!e) return ''; const p = E.P(e[0]); return `<small>${p ? p.pos + ' · ' : ''}proj ${e[2] != null ? e[2].toFixed(1) : '—'}</small>`; };
+  const sub = e => { if (!e) return ''; const p = E.P(e[0]); return `<small>${p ? p.pos + ' · ' + (p.nfl || '') + ' · ' : ''}proj ${e[2] != null ? e[2].toFixed(1) : '—'}</small>`; };
   const rows = E.SLOTS.map((s, i) => `<div class="gd-row" id="gdr-${i}">
       <div class="gd-p l" id="gpa-${i}">${name(A.lu[i])}${sub(A.lu[i])}</div>
       <div class="reelwrap" id="rwa-${i}"><div class="reel" id="ra-${i}"><span class="num">?</span></div></div>
@@ -626,9 +631,14 @@ function landReel(el, wrap, entry, quiet) {
     el.classList.add('hot');
     wrap.insertAdjacentHTML('beforeend', '<span class="tag">🔥</span>');
     if (!quiet) sparks(wrap, '#4ade80', 10);
-  } else if (pts < proj * 0.5) {
+  } else if (pts < proj * 0.5 && !entry[3]) {
     el.classList.add('cold');
     wrap.insertAdjacentHTML('beforeend', '<span class="tag">🥶</span>');
+  }
+  if (entry[3]) { // injured during this game
+    el.classList.add('hurt');
+    wrap.insertAdjacentHTML('beforeend', '<span class="tag hurt-tag">🚑</span><span class="jp hurt-lbl">INJURED</span>');
+    if (!quiet) { const gd = $('#gameday'); gd.classList.remove('shake'); void gd.offsetWidth; gd.classList.add('shake'); }
   }
   return pts;
 }
@@ -678,9 +688,24 @@ async function runGameDay(A, B, week, token, animate) {
   else if (won) { cls = champ ? 'champ' : 'win'; text = champ ? '🏆 CHAMPIONS! 🏆' : 'VICTORY'; }
   else { cls = 'loss'; text = champ ? 'RUNNER-UP' : 'DEFEAT'; }
   const margin = Math.abs(A.s - B.s);
-  $('#gd-end').innerHTML = `<div class="gd-banner ${cls}">${text}</div><div class="gd-sub">${A.s.toFixed(1)} – ${B.s.toFixed(1)}${margin > 0 && margin < 5 ? ' · a nail-biter!' : margin >= 40 ? ' · a blowout' : ''}</div>`;
+  $('#gd-end').innerHTML = `<div class="gd-banner ${cls}">${text}</div><div class="gd-sub">${A.s.toFixed(1)} – ${B.s.toFixed(1)}${margin > 0 && margin < 5 ? ' · a nail-biter!' : margin >= 40 ? ' · a blowout' : ''}</div>` + injuryReport(A, B, week);
   $('#gd-btns').innerHTML = `<button class="primary" data-act="gdClose">Continue</button>`;
   if (animate && userIn && won) confetti(champ ? 260 : 110);
+}
+
+// injuries suffered this week by players on either fantasy team (starters and bench)
+function injuryReport(A, B, week) {
+  const l = L();
+  const yr = A.yr || l.year;
+  const list = (l.injuryLog || []).filter(x => x.year === yr && x.week === week && (x.team === A.id || x.team === B.id))
+    .sort((x, y) => (y.team === l.userId) - (x.team === l.userId) || y.season - x.season);
+  if (!list.length) return `<div class="gd-inj none">✅ No injuries for either team this week.</div>`;
+  return `<div class="gd-inj"><div class="gd-inj-h">🚑 Injury report</div>${list.map(x => {
+    const mine = x.team === l.userId;
+    return `<div class="gd-inj-row ${mine ? 'mine' : ''} ${x.season ? 'sev' : ''}">
+      <span>${posTag(x.pos)} <b>${esc(x.pname)}</b> <span class="nfl">${x.nfl}</span> <span class="muted">· ${mine ? 'your team' : esc(E.T(x.team).abbr)}</span></span>
+      <span><b>${esc(x.name)}</b> — <span class="${x.season ? 'sev-txt' : ''}">${esc(x.est)}</span></span></div>`;
+  }).join('')}</div>`;
 }
 
 function closeGameDay() {
@@ -715,6 +740,10 @@ function simMany(mode) {
     if (mode !== 1 && l.offers.length > startOffers) { toast('📨 You received a trade offer — sim paused.'); break; }
   }
   UI.week = null;
+  if (n > 1) {
+    const hurt = (l.injuryLog || []).filter(x => x.team === l.userId && x.year === l.year && x.week >= w0 && x.week < w0 + n);
+    if (hurt.length) toast(`🚑 ${hurt.length} injur${hurt.length > 1 ? 'ies' : 'y'} on your team: ${hurt.map(x => `${x.pname} (${x.name}, ${x.est})`).join('; ')}`, 7000);
+  }
   if (mode === 1 && n === 1) {
     const g = findGame(w0, l.userId);
     if (g) showGameDay(g, w0, true);

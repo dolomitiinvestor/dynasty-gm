@@ -21,6 +21,51 @@ const PCFG = {
   WR: { base: 2,   scale: 19, repl: 7,  peakEnd: 28, declineAge: 29, decline: 4,   inj: 0.022, cap: 9 },
   TE: { base: 1.5, scale: 15, repl: 5,  peakEnd: 29, declineAge: 30, decline: 4,   inj: 0.022, cap: 3 },
 };
+const NFL = {
+  ARI: 'Arizona Cardinals', ATL: 'Atlanta Falcons', BAL: 'Baltimore Ravens', BUF: 'Buffalo Bills', CAR: 'Carolina Panthers',
+  CHI: 'Chicago Bears', CIN: 'Cincinnati Bengals', CLE: 'Cleveland Browns', DAL: 'Dallas Cowboys', DEN: 'Denver Broncos',
+  DET: 'Detroit Lions', GB: 'Green Bay Packers', HOU: 'Houston Texans', IND: 'Indianapolis Colts', JAX: 'Jacksonville Jaguars',
+  KC: 'Kansas City Chiefs', LV: 'Las Vegas Raiders', LAC: 'Los Angeles Chargers', LAR: 'Los Angeles Rams', MIA: 'Miami Dolphins',
+  MIN: 'Minnesota Vikings', NE: 'New England Patriots', NO: 'New Orleans Saints', NYG: 'New York Giants', NYJ: 'New York Jets',
+  PHI: 'Philadelphia Eagles', PIT: 'Pittsburgh Steelers', SF: 'San Francisco 49ers', SEA: 'Seattle Seahawks', TB: 'Tampa Bay Buccaneers',
+  TEN: 'Tennessee Titans', WAS: 'Washington Commanders',
+};
+const NFL_ABBRS = Object.keys(NFL);
+
+// Per-game chance a player suffers an injury. Calibrated so that, like the real NFL,
+// RBs miss the most time (~3 games/season on average), then WR/TE (~2.5), then QB (~1.5).
+const INJ_RATE = { QB: 0.034, RB: 0.07, WR: 0.052, TE: 0.049 };
+// Severity mix: most injuries cost a game or two, a few end the season.
+const INJ_TIERS = [['minor', 0.53], ['moderate', 0.27], ['major', 0.12], ['season', 0.08]];
+const INJURIES = [
+  { n: 'Ankle sprain', t: 'minor', w: [1, 2] },
+  { n: 'Hamstring tightness', t: 'minor', w: [1, 2] },
+  { n: 'Concussion', t: 'minor', w: [1, 2], pos: { QB: 2, WR: 2 } },
+  { n: 'Quad strain', t: 'minor', w: [1, 2] },
+  { n: 'Shoulder sprain', t: 'minor', w: [1, 2], pos: { QB: 2 } },
+  { n: 'Back spasms', t: 'minor', w: [1, 1] },
+  { n: 'Rib contusion', t: 'minor', w: [1, 2], pos: { QB: 2 } },
+  { n: 'Knee bruise', t: 'minor', w: [1, 1] },
+  { n: 'Groin strain', t: 'minor', w: [1, 2] },
+  { n: 'High ankle sprain', t: 'moderate', w: [3, 6], pos: { RB: 2 } },
+  { n: 'Hamstring strain', t: 'moderate', w: [2, 4], pos: { WR: 2, RB: 1.5 } },
+  { n: 'MCL sprain', t: 'moderate', w: [3, 6] },
+  { n: 'Broken hand', t: 'moderate', w: [3, 5], pos: { WR: 1.5, TE: 1.5 } },
+  { n: 'Turf toe', t: 'moderate', w: [3, 6] },
+  { n: 'AC joint sprain', t: 'moderate', w: [2, 4], pos: { QB: 2 } },
+  { n: 'Calf strain', t: 'moderate', w: [2, 4] },
+  { n: 'Broken collarbone', t: 'major', w: [6, 9], pos: { QB: 2 } },
+  { n: 'Lisfranc injury', t: 'major', w: [6, 10] },
+  { n: 'Fractured ribs', t: 'major', w: [5, 8] },
+  { n: 'Torn hamstring', t: 'major', w: [6, 9], pos: { WR: 1.5, RB: 1.5 } },
+  { n: 'Broken ankle', t: 'major', w: [8, 12] },
+  { n: 'Torn ACL', t: 'season', carry: 4, pos: { RB: 1.5, WR: 1.3 } },
+  { n: 'Torn Achilles', t: 'season', carry: 6 },
+  { n: 'Broken leg', t: 'season', carry: 2 },
+  { n: 'Torn pectoral', t: 'season', carry: 1, pos: { TE: 1.5 } },
+  { n: 'Torn labrum', t: 'season', carry: 1, pos: { QB: 2 } },
+];
+
 const MODE = {
   contend:  { now: 1.35, disc: 0.62, pick: 0.75 },
   balanced: { now: 1.0,  disc: 0.80, pick: 0.92 },
@@ -78,7 +123,8 @@ function newRookie(pos, year, persist = true) {
   const p = {
     id: persist ? nid() : -1, first: pick(FIRST), last: pick(LAST), pos, age, ovr, pot,
     dev: +rnd(0.2, 0.65).toFixed(2), college: pick(COLLEGES), teamId: null,
-    rookieYear: year, draft: null, revealed: false, inj: 0, hist: [], wk: [],
+    rookieYear: year, draft: null, revealed: false, inj: 0, injury: null, hist: [], wk: [],
+    nfl: pick(NFL_ABBRS),
   };
   p.scoutOvr = Math.round(clamp(ovr + gauss(0, 7), 20, 95));
   p.scoutPot = Math.round(clamp(pot + gauss(0, 9), p.scoutOvr, 99));
@@ -135,6 +181,34 @@ function rollScore(p) {
   return Math.round(Math.max(-3, s) * 10) / 10;
 }
 
+function weighted(list) { // [[item, weight], ...]
+  let r = Math.random() * sum(list.map(x => x[1]));
+  for (const [item, wt] of list) { r -= wt; if (r <= 0) return item; }
+  return list[list.length - 1][0];
+}
+
+// Injure a player during week w. Returns the injury record.
+function injure(p, w) {
+  const tier = weighted(INJ_TIERS);
+  const def = weighted(INJURIES.filter(i => i.t === tier).map(i => [i, (i.pos && i.pos[p.pos]) || 1]));
+  let weeks, est, short;
+  if (tier === 'season') { weeks = 99; est = 'out for the season'; short = 'IR'; }
+  else {
+    weeks = ri(def.w[0], def.w[1]);
+    if (Math.random() < 0.1) weeks++; // occasional setback beyond the initial estimate
+    est = def.w[0] === def.w[1] ? `out ~${def.w[0]} week${def.w[0] > 1 ? 's' : ''}` : `out ${def.w[0]}–${def.w[1]} weeks`;
+    short = def.w[0] === def.w[1] ? `${def.w[0]}w` : `${def.w[0]}-${def.w[1]}w`;
+  }
+  p.inj = weeks;
+  p.injury = { name: def.n, est, short, season: tier === 'season', carry: def.carry || 0, year: L.year, week: w, tier };
+  if (p.teamId != null) {
+    L.injuryLog.push({ year: L.year, week: w, id: p.id, team: p.teamId, pname: fullName(p), pos: p.pos, nfl: p.nfl, name: def.n, est, season: p.injury.season, tier });
+    if (p.teamId === L.userId) news(`🚑 ${p.pos} ${fullName(p)} (${p.nfl}) — ${def.n}, ${est}.`, 'bad', true);
+    else if (p.injury.season && ppg(p.ovr, p.pos) > PCFG[p.pos].repl + 3) news(`🚑 ${T(p.teamId).abbr}'s ${p.pos} ${fullName(p)} (${p.nfl}) suffers a ${def.n.toLowerCase()} — out for the season.`);
+  }
+  return p.injury;
+}
+
 function seasonPts(p) { return Math.round(sum(p.wk.filter(x => x != null)) * 10) / 10; }
 function seasonGP(p) { return p.wk.filter(x => x != null).length; }
 
@@ -176,9 +250,12 @@ function valueCore(p, mode, view, frac) {
 }
 
 function playerValue(p, mode = 'balanced', view = 'true') {
-  let v = valueCore(p, mode, view, seasonFrac());
-  if (p.inj > 0 && L.phase === 'regular') v *= 1 - Math.min(0.4, p.inj / (C.REG_WEEKS * 2));
-  return v;
+  let frac = seasonFrac();
+  if (p.inj > 0 && (L.phase === 'regular' || L.phase === 'playoffs')) {
+    const remaining = Math.max(1, C.REG_WEEKS + 3 - L.week);
+    frac *= Math.max(0, 1 - p.inj / remaining); // season-ending injury wipes out this year's value
+  }
+  return valueCore(p, mode, view, frac);
 }
 
 const curveCache = {};
@@ -373,7 +450,7 @@ function newLeague({ teamName = 'My Team', numTeams = 10, difficulty = 'normal' 
     settings: { numTeams, difficulty },
     teams: makeTeams(numTeams, teamName.trim() || 'My Team'),
     players: {}, picks: [], schedule: [], results: [], playoffs: null, draft: null,
-    news: [], offers: [], history: [], retired: [], draftOrders: {}, draftHistory: {},
+    news: [], offers: [], history: [], retired: [], draftOrders: {}, draftHistory: {}, injuryLog: [],
   };
   const counts = { QB: 3.5, RB: 8, WR: 10, TE: 3.5 };
   POS.forEach(pos => {
@@ -529,6 +606,7 @@ function startSeason() {
   L.results = [];
   L.playoffs = null;
   L.offers = [];
+  L.injuryLog = L.injuryLog.filter(x => x.year >= L.year - 1);
   L.phase = 'regular';
   L.week = 1;
   setModes();
@@ -564,13 +642,13 @@ function simWeek() {
   // score every active player
   Object.values(L.players).forEach(p => {
     if (p.retired) return;
-    if (p.inj > 0) { p.wk[w - 1] = null; p.inj--; return; }
-    p.wk[w - 1] = rollScore(p);
-    if (Math.random() < PCFG[p.pos].inj) {
-      const r = Math.random();
-      p.inj = r < 0.55 ? ri(1, 2) : r < 0.85 ? ri(3, 6) : ri(7, 14);
-      if (p.teamId === L.userId) news(`${p.pos} ${fullName(p)} injured — out ${p.inj} week${p.inj > 1 ? 's' : ''}.`, 'bad', true);
+    if (p.inj > 0) { p.wk[w - 1] = null; p.inj--; if (!p.inj) p.injury = null; return; }
+    let s = rollScore(p);
+    if (Math.random() < INJ_RATE[p.pos]) {
+      injure(p, w);
+      s = Math.round(s * rnd(0.1, 0.7) * 10) / 10; // left the game early
     }
+    p.wk[w - 1] = s;
     // in-season development
     if (p.age <= 25 && p.ovr < p.pot && Math.random() < 0.12) p.ovr++;
     if (p.age >= PCFG[p.pos].declineAge && Math.random() < 0.08) p.ovr--;
@@ -580,8 +658,14 @@ function simWeek() {
     const ta = T(a), tb = T(b);
     const sa = lineupScore(ta, w), sb = lineupScore(tb, w);
     // snapshot of each lineup: [playerId, points (null = injured/out), projection] per slot
-    const snap = t => t.lineup.map(id => (id != null ? [id, P(id).wk[w - 1], Math.round(ppg(P(id).ovr, P(id).pos) * 10) / 10] : null));
-    return { a, b, sa, sb, la: snap(ta), lb: snap(tb) };
+    // [playerId, points (null = out), projection, hurt in this game (1/0)] per slot
+    const snap = t => t.lineup.map(id => {
+      if (id == null) return null;
+      const p = P(id);
+      const hurt = p.injury && p.injury.year === L.year && p.injury.week === w ? 1 : 0;
+      return [id, p.wk[w - 1], Math.round(ppg(p.ovr, p.pos) * 10) / 10, hurt];
+    });
+    return { a, b, sa, sb, la: snap(ta), lb: snap(tb), year: L.year };
   };
 
   if (L.phase === 'regular') {
@@ -679,8 +763,17 @@ function startOffseason() {
   const retiring = [];
   Object.values(L.players).forEach(p => {
     if (p.retired) return;
+    // serious injuries (ACL, Achilles...) can sap some ability the following year
+    if (p.injury && p.injury.carry) p.ovr = Math.max(20, p.ovr - Math.round(p.injury.carry * rnd(0.5, 1.5)));
     p.inj = 0;
+    p.injury = null;
     ageOne(p);
+    // NFL free agency / trades: some veterans change NFL teams
+    if (p.age >= 25 && Math.random() < (p.age >= 29 ? 0.22 : 0.14)) {
+      const old = p.nfl;
+      p.nfl = pick(NFL_ABBRS.filter(x => x !== old));
+      if (p.teamId === L.userId) news(`${p.pos} ${fullName(p)} signed with the ${NFL[p.nfl]} (from ${old}).`, 'info', true);
+    }
     p.potEst = estPot(p);
     const ch = retireChanceAt(p.pos, p.age, p.ovr);
     if (Math.random() < ch) retiring.push(p);
@@ -902,10 +995,21 @@ function releasePlayer(playerId) {
 
 // ---------- persistence ----------
 function serialize() { return JSON.stringify(L); }
-function load(json) { L = typeof json === 'string' ? JSON.parse(json) : json; return L; }
+function load(json) {
+  L = typeof json === 'string' ? JSON.parse(json) : json;
+  if (L) { // migrate older saves
+    if (!L.injuryLog) L.injuryLog = [];
+    Object.values(L.players).forEach(p => {
+      if (!p.nfl) p.nfl = pick(NFL_ABBRS);
+      if (p.injury === undefined) p.injury = null;
+      if (p.inj > 0 && !p.injury) p.injury = { name: 'Undisclosed injury', est: `out ~${p.inj} weeks`, short: `${p.inj}w`, season: false, carry: 0, year: L.year, week: L.week, tier: 'moderate' };
+    });
+  }
+  return L;
+}
 
 G.Engine = {
-  C, POS, SLOTS, PCFG, DIFF, MODE,
+  C, POS, SLOTS, PCFG, DIFF, MODE, NFL, INJ_RATE,
   get L() { return L; },
   newLeague, load, serialize,
   P, T, fullName, ppg, proj, seasonPts, seasonGP, playerValue, valueCore, pickValue, pickLabel, pickSlot,

@@ -14,7 +14,10 @@ Every player, rookie class, career arc and league is procedurally generated. No 
 - **CPU managers with personalities** — each team is *Contending*, *Balanced* or *Rebuilding*, which changes how it values vets versus youth and picks. CPU teams send you offers and trade with each other.
 - **Season over season** — players develop toward their potential, peak, decline (RBs fall off earlier than QBs), get hurt, and retire.
 - **Free agency** — sign and release players. Undrafted rookies hit the waiver pool.
+- **Real NFL teams** — every generated player plays for one of the 32 NFL teams; veterans sometimes change teams in the offseason.
+- **Realistic injuries** — position-based rates (RBs miss ~3 games a season, WR/TE ~2, QB ~1.5), named injuries from a 1-game ankle sprain to a season-ending torn ACL, expected return timelines, occasional setbacks, and lingering effects from major injuries. Injuries show up in the end-of-game injury report.
 - **Lineups** — QB, 2 RB, 2 WR, TE, FLEX. Auto-set or manage it each week.
+- **Game day** — single-week sims play out slot by slot on slot-machine reels (jackpots, injuries, confetti). Box scores and replays for every game.
 - **14-week season, 4-team playoffs**, MVP and Rookie of the Year awards, champions list, draft history and retired legends.
 - **Saves** — auto-saves to your browser (localStorage). Export or import a JSON save file.
 
