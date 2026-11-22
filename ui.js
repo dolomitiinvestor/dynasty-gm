@@ -431,12 +431,13 @@ function viewDraft() {
 // ---------- league ----------
 function viewLeague() {
   const l = L();
-  const subs = [['standings', 'Standings'], ['schedule', 'Schedule & Results'], ['playoffs', 'Playoffs'], ['leaders', 'Leaders'], ['teams', 'Teams'], ['scoring', 'Scoring']];
+  const subs = [['standings', 'Standings'], ['schedule', 'Schedule & Results'], ['playoffs', 'Playoffs'], ['leaders', 'Leaders'], ['records', '🏅 Records'], ['teams', 'Teams'], ['scoring', 'Scoring']];
   let body = '';
   if (UI.league === 'standings') body = `<div class="card"><h2>Standings</h2>${standingsTable(false)}</div>`;
   else if (UI.league === 'schedule') body = scheduleView();
   else if (UI.league === 'playoffs') body = playoffsView();
   else if (UI.league === 'leaders') body = leadersView();
+  else if (UI.league === 'records') body = recordsView();
   else if (UI.league === 'scoring') body = `<div class="card"><h2>Scoring settings <span class="r">${esc((E.SCORING_PRESETS[E.presetOf(l.settings.scoring)] || { label: 'Custom' }).label)}</span></h2>${scoringEditable() ? '<p class="muted">Changes apply to all future games. Projections and trade values update immediately.</p>' : '<div class="msg" style="margin-bottom:10px">🔒 Scoring is locked during the season. You can change it in the offseason or preseason.</div>'}${scoringForm(l.settings.scoring, 'league', scoringEditable())}</div>`;
   else body = `<div class="grid g2">${l.teams.map(t => `<div class="card"><h2>${teamName(t.id)} ${t.human ? '<span class="badge">You</span>' : modeBadge(t.mode)}<span class="r">${t.titles ? '🏆×' + t.titles : ''}</span></h2>
       <p class="muted">Power ${E.teamPower(t).toFixed(1)} · Roster ${t.roster.length} · Picks ${l.picks.filter(k => k.ownerId === t.id && !k.used).length}</p>
@@ -477,6 +478,77 @@ function leadersView() {
     const top = all.filter(p => p.pos === pos && (p.revealed || p.teamId != null)).sort((a, b) => metric(b) - metric(a)).slice(0, 10);
     return `<div class="card"><h2>${posTag(pos)} ${hasPts ? 'Fantasy points' : 'Top value'}</h2><table><tbody>${top.map((p, i) => `<tr><td>${i + 1}</td><td>${pLink(p)}${nflTag(p)}${statusBadges(p)}</td><td>${teamAbbr(p.teamId)}</td><td class="num">${hasPts ? E.seasonPts(p).toFixed(1) : Math.round(metric(p))}</td></tr>`).join('')}</tbody></table></div>`;
   }).join('')}</div>`;
+}
+
+// ---------- record book ----------
+const wkLabel = w => (w <= C.REG_WEEKS ? `Wk ${w}` : w === C.REG_WEEKS + 1 ? 'Semis' : 'Final');
+const recWhen = e => (e.week ? `${wkLabel(e.week)}, ${e.year}` : `${e.year}`);
+const recVal = (c, e) => (c.unit ? `${e.v} ${c.unit}` : (+e.v).toFixed(1));
+const recPlayer = e => { const p = E.P(e.pid); return `${posTag(e.pos)} ${p ? pLink(p) : esc(e.name)}`; };
+const recTeam = id => (id != null && E.T(id) ? teamAbbr(id) : '<span class="muted">FA</span>');
+
+// one-line description of who/what for an entry
+function recWho(c, e) {
+  if (c.grp === 'player') return `${recPlayer(e)} <span class="muted">· ${recTeam(e.t)}</span>`;
+  if (c.k === 'sPF' || c.k === 'sWins') return recTeam(e.t);
+  if (c.grp === 'season') return `${recPlayer(e)} <span class="muted">· ${recTeam(e.t)}</span>`;
+  if (c.k === 'combined') return `${recTeam(e.t)} <span class="muted">vs</span> ${recTeam(e.o)}`;
+  return recTeam(e.t);
+}
+function recDetail(c, e) {
+  if (c.k === 'streak') {
+    const T = E.T(e.t), live = T.streak === e.v && T.streakFrom && T.streakFrom.year === e.from.year && T.streakFrom.week === e.from.week;
+    return `${wkLabel(e.from.week)}, ${e.from.year} → ${recWhen(e)}${live ? ' <span class="badge hot">active</span>' : ''}`;
+  }
+  if (c.k === 'sPF') return `${e.w}-${e.l}${e.ties ? '-' + e.ties : ''} · ${e.year}`;
+  if (c.k === 'sWins') return `${e.w}-${e.l}${e.ties ? '-' + e.ties : ''} · ${e.pf.toFixed(1)} PF · ${e.year}`;
+  if (c.grp === 'season') return `${e.gp} games · ${e.year}`;
+  if (c.grp === 'player') return `${esc(e.line || '')}${c.unit ? ` · ${e.pts.toFixed(1)} pts` : ''} · vs ${e.o != null ? esc(E.T(e.o).abbr) : '?'} · ${recWhen(e)}`;
+  if (c.k === 'combined' || c.k === 'blowout' || c.k === 'closeLoss') return `${e.s.toFixed(1)}–${e.os.toFixed(1)}${c.k !== 'combined' ? ` vs ${esc(E.T(e.o).abbr)}` : ''} · ${recWhen(e)}`;
+  return `vs ${esc(E.T(e.o).abbr)} (${e.os.toFixed(1)}) · ${recWhen(e)}`;
+}
+
+function recordsView() {
+  const l = L();
+  const scope = UI.recScope || 'season';
+  const n = UI.recN || 5;
+  const book = E.recordBook(scope);
+  const yr = l.rec && l.rec.year;
+  const groups = [['team', 'Team · single game'], ['player', 'Player · single game (fantasy starters)'], ['season', 'Season']];
+  const toggle = `<div class="row" style="margin-bottom:12px;align-items:center">
+    <button class="sm ${scope === 'season' ? 'blue' : ''}" data-act="recScope" data-k="season">${yr ? yr + ' season' : 'This season'}</button>
+    <button class="sm ${scope === 'all' ? 'blue' : ''}" data-act="recScope" data-k="all">All-time</button>
+    <span class="spacer"></span>
+    <button class="sm" data-act="recN">${n === 5 ? 'Show top 10' : 'Show top 5'}</button></div>`;
+  if (!E.REC_CATS.some(c => (book[c.k] || []).length)) return `<div class="card"><h2>🏅 Record book</h2>${toggle}<p class="muted">No games played yet. Records start filling in after week 1.</p></div>`;
+  return `<div class="card"><h2>🏅 Record book <span class="r muted" style="font-size:13px">${scope === 'all' ? 'League history · ★ = set this season' : 'Most recent season'}</span></h2>${toggle}</div>` +
+    groups.map(([g, title]) => `<h3 class="rec-group">${title}</h3><div class="grid g3 rec-grid">${E.REC_CATS.filter(c => c.grp === g).map(c => {
+      const list = (book[c.k] || []).slice(0, n);
+      return `<div class="card rec-card"><h4>${c.pos ? posTag(c.pos) + ' ' : ''}${esc(c.label)}</h4>${list.length ? `<table class="rec"><tbody>${list.map((e, i) => {
+        const mine = e.t === l.userId || (c.k === 'combined' && e.o === l.userId);
+        const fresh = scope === 'all' && e.year === yr && l.history.length;
+        return `<tr class="${mine ? 'me' : ''}"><td class="rk">${i === 0 ? '👑' : i + 1}</td><td><div>${recWho(c, e)}${fresh ? ' <span class="star">★</span>' : ''}</div><div class="muted sm-txt">${recDetail(c, e)}</div></td><td class="num rv">${recVal(c, e)}</td></tr>`;
+      }).join('')}</tbody></table>` : '<p class="muted">—</p>'}</div>`;
+    }).join('')}</div>`).join('');
+}
+
+// records set in one game, for the end-of-game screen
+function recordsReport(A, B, week) {
+  const l = L();
+  const yr = A.yr || l.year;
+  const all = E.recordBook('all'), ssn = l.rec && l.rec.year === yr ? E.recordBook('season') : {};
+  const match = e => e && e.year === yr && e.week === week && (e.t === A.id || e.t === B.id);
+  const hits = [];
+  E.REC_CATS.filter(c => c.grp !== 'season').forEach(c => {
+    const top = (all[c.k] || [])[0], st = (ssn[c.k] || [])[0];
+    if (l.history.length && match(top)) hits.push([1, c, top]);
+    else if (week >= 3 && match(st)) hits.push([0, c, st]);
+  });
+  if (!hits.length) return '';
+  hits.sort((a, b) => b[0] - a[0] || (b[2].t === l.userId) - (a[2].t === l.userId));
+  return `<div class="gd-rec"><div class="gd-rec-h">📜 Record book</div>${hits.slice(0, 6).map(([lg, c, e]) => `<div class="gd-rec-row ${e.t === l.userId ? 'mine' : ''}">
+    <span><span class="rbadge ${lg ? 'lg' : ''}">${lg ? 'LEAGUE RECORD' : 'SEASON BEST'}</span> ${esc(c.label)}</span>
+    <span>${recWho(c, e)} — <b>${recVal(c, e)}</b></span></div>`).join('')}</div>`;
 }
 
 // ---------- history ----------
@@ -842,7 +914,7 @@ async function runGameDay(A, B, week, token, animate) {
   else if (won) { cls = champ ? 'champ' : 'win'; text = champ ? '🏆 CHAMPIONS! 🏆' : 'VICTORY'; }
   else { cls = 'loss'; text = champ ? 'RUNNER-UP' : 'DEFEAT'; }
   const margin = Math.abs(A.s - B.s);
-  $('#gd-end').innerHTML = `<div class="gd-banner ${cls}">${text}</div><div class="gd-sub">${A.s.toFixed(1)} – ${B.s.toFixed(1)}${margin > 0 && margin < 5 ? ' · a nail-biter!' : margin >= 40 ? ' · a blowout' : ''}</div>` + injuryReport(A, B, week);
+  $('#gd-end').innerHTML = `<div class="gd-banner ${cls}">${text}</div><div class="gd-sub">${A.s.toFixed(1)} – ${B.s.toFixed(1)}${margin > 0 && margin < 5 ? ' · a nail-biter!' : margin >= 40 ? ' · a blowout' : ''}</div>` + recordsReport(A, B, week) + injuryReport(A, B, week);
   $('#gd-btns').innerHTML = `<button class="primary" data-act="gdClose">Continue</button>`;
   if (animate && userIn && won) confetti(champ ? 260 : 110);
 }
@@ -984,6 +1056,8 @@ const actions = {
   },
   sort: el => { const k = el.dataset.k; if (UI.players.sort === k) UI.players.dir *= -1; else { UI.players.sort = k; UI.players.dir = -1; } },
   lsub: el => { UI.league = el.dataset.k; },
+  recScope: el => { UI.recScope = el.dataset.k; },
+  recN: () => { UI.recN = (UI.recN || 5) === 5 ? 10 : 5; },
   wk: el => { UI.week = +el.dataset.w; },
   gdSkip: () => { GD.skip = true; GD.timers.forEach(clearInterval); if (GD.wake) GD.wake(); },
   gdClose: closeGameDay,

@@ -20,6 +20,7 @@ Every player, rookie class, career arc and league is procedurally generated. No 
 - **Custom scoring** — presets (Standard, Half PPR, Full PPR, PPR + TE Premium, 6-pt passing TD) or fully custom: yardage rates, TDs, INTs, completions, PPR, TE premium, kick/punt return yards and TDs, first downs, 2-pt conversions, fumbles and 100/300-yard bonuses. Projections and trade values adapt to your scoring.
 - **Lineups** — QB, 2 RB, 2 WR, TE, FLEX. Auto-set or manage it each week.
 - **Game day** — single-week sims play out slot by slot on slot-machine reels (jackpots, injuries, confetti). Box scores and replays for every game.
+- **Record book** — League → Records tracks this season and all-time marks: most/fewest points in a week, biggest blowout, closest loss, most points in a loss, fewest in a win, highest-scoring matchup, longest win streak, best single-game player scores by position, single-game yardage/reception/TD records, and season records for teams and players by position. New records show on the end-of-game screen and in the news feed.
 - **14-week season, 4-team playoffs**, MVP and Rookie of the Year awards, champions list, draft history and retired legends.
 - **Saves** — auto-saves to your browser (localStorage). Export or import a JSON save file.
 

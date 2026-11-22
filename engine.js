@@ -630,7 +630,7 @@ function newLeague({ teamName = 'My Team', numTeams = 10, difficulty = 'normal',
     settings: { numTeams, difficulty, scoring: Object.assign(presetScoring('half'), scoring || {}) },
     teams: makeTeams(numTeams, teamName.trim() || 'My Team'),
     players: {}, picks: [], schedule: [], results: [], playoffs: null, draft: null,
-    news: [], offers: [], history: [], retired: [], draftOrders: {}, draftHistory: {}, injuryLog: [],
+    news: [], offers: [], history: [], retired: [], draftOrders: {}, draftHistory: {}, injuryLog: [], rec: { year: null, season: {}, all: {} },
   };
   const counts = { QB: 3.5, RB: 8, WR: 10, TE: 3.5 };
   POS.forEach(pos => {
@@ -786,6 +786,8 @@ function startSeason() {
   L.results = [];
   L.playoffs = null;
   L.offers = [];
+  L.rec.season = {};
+  L.rec.year = L.year;
   L.injuryLog = L.injuryLog.filter(x => x.year >= L.year - 1);
   L.phase = 'regular';
   L.week = 1;
@@ -807,6 +809,130 @@ function opponentOf(teamId, week) {
 
 function lineupScore(t, week) {
   return Math.round(sum(t.lineup.map(id => (id != null ? (P(id).wk[week - 1] || 0) : 0))) * 10) / 10;
+}
+
+
+// ---------- record book ----------
+const REC_N = 10;
+const REC_CATS = [
+  { k: 'tHigh', grp: 'team', label: 'Most points in a week', dir: -1 },
+  { k: 'tLow', grp: 'team', label: 'Fewest points in a week', dir: 1 },
+  { k: 'blowout', grp: 'team', label: 'Biggest blowout', dir: -1 },
+  { k: 'closeLoss', grp: 'team', label: 'Closest loss', dir: 1 },
+  { k: 'hiLoss', grp: 'team', label: 'Most points in a loss', dir: -1 },
+  { k: 'loWin', grp: 'team', label: 'Fewest points in a win', dir: 1 },
+  { k: 'combined', grp: 'team', label: 'Highest-scoring matchup', dir: -1 },
+  { k: 'streak', grp: 'team', label: 'Longest winning streak', dir: -1, unit: 'W' },
+  ...POS.map(pos => ({ k: 'p' + pos, grp: 'player', pos, label: `Most points by a ${pos} in a week`, dir: -1 })),
+  { k: 'gPy', grp: 'player', label: 'Most passing yards in a game', dir: -1, unit: 'yds' },
+  { k: 'gRy', grp: 'player', label: 'Most rushing yards in a game', dir: -1, unit: 'yds' },
+  { k: 'gRcy', grp: 'player', label: 'Most receiving yards in a game', dir: -1, unit: 'yds' },
+  { k: 'gRec', grp: 'player', label: 'Most receptions in a game', dir: -1, unit: 'rec' },
+  { k: 'gPtd', grp: 'player', label: 'Most passing TDs in a game', dir: -1, unit: 'TD' },
+  { k: 'gTd', grp: 'player', label: 'Most rush/rec TDs in a game', dir: -1, unit: 'TD' },
+  { k: 'sPF', grp: 'season', label: 'Most points in a season', dir: -1 },
+  { k: 'sWins', grp: 'season', label: 'Most wins in a season', dir: -1, unit: 'W' },
+  ...POS.map(pos => ({ k: 's' + pos, grp: 'season', pos, label: `Most points by a ${pos} in a season`, dir: -1 })),
+];
+const REC_DIR = Object.fromEntries(REC_CATS.map(c => [c.k, c.dir]));
+const r1 = x => Math.round(x * 10) / 10;
+
+// insert an entry into a top-N list; returns true when it takes over #1 (a new record)
+function pushRec(book, k, e) {
+  const dir = REC_DIR[k];
+  const list = book[k] || (book[k] = []);
+  const prevTop = list[0];
+  if (e.key) {
+    const i = list.findIndex(x => x.key === e.key);
+    if (i >= 0) { if ((e.v - list[i].v) * dir >= 0) return false; list.splice(i, 1); }
+  }
+  list.push(e);
+  list.sort((a, b) => (a.v - b.v) * dir || (b.v2 || 0) - (a.v2 || 0) || a.year - b.year || (a.week || 0) - (b.week || 0));
+  if (list.length > REC_N) list.length = REC_N;
+  return list[0] === e && !(prevTop && e.key && prevTop.key === e.key);
+}
+
+// record every team/player mark from one finished matchup; returns new all-time #1s
+function recordGame(g, w, yr) {
+  const R = L.rec, out = [];
+  const add = (k, e) => {
+    e.year = yr; e.week = w;
+    pushRec(R.season, k, e);
+    if (pushRec(R.all, k, Object.assign({}, e))) out.push([k, e]);
+  };
+  [[g.a, g.b, g.sa, g.sb, g.la], [g.b, g.a, g.sb, g.sa, g.lb]].forEach(([t, o, s, os, lu]) => {
+    const base = { t, o, s, os };
+    add('tHigh', { v: s, ...base });
+    add('tLow', { v: s, ...base });
+    if (s < os) add('hiLoss', { v: s, ...base });
+    if (s > os) add('loWin', { v: s, ...base });
+    (lu || []).forEach(x => {
+      if (!x || x[1] == null) return;
+      const p = P(x[0]);
+      if (!p) return;
+      const st = (p.st && p.st[w - 1]) || {};
+      const pe = { pid: p.id, name: fullName(p), pos: p.pos, nfl: p.nfl, t, o, pts: r1(x[1]), line: statLine(st, p.pos) };
+      add('p' + p.pos, { v: r1(x[1]), ...pe });
+      const td = (st.rtd || 0) + (st.rctd || 0) + (st.rttd || 0);
+      [['gPy', st.py], ['gPtd', st.ptd], ['gRy', st.ry], ['gRcy', st.rcy], ['gRec', st.rec], ['gTd', td]].forEach(([k, v]) => { if (v > 0) add(k, { v, ...pe }); });
+    });
+  });
+  const m = r1(Math.abs(g.sa - g.sb));
+  const [wt, lt, ws, ls] = g.sa >= g.sb ? [g.a, g.b, g.sa, g.sb] : [g.b, g.a, g.sb, g.sa];
+  if (m > 0) {
+    add('blowout', { v: m, t: wt, o: lt, s: ws, os: ls });
+    add('closeLoss', { v: m, t: lt, o: wt, s: ls, os: ws });
+  }
+  add('combined', { v: r1(g.sa + g.sb), t: g.a, o: g.b, s: g.sa, os: g.sb });
+  // winning streaks carry across weeks, playoffs and seasons
+  [[g.a, g.sa > g.sb], [g.b, g.sb > g.sa]].forEach(([id, won]) => {
+    const t = T(id);
+    if (!won) { t.streak = 0; return; }
+    if (!t.streak) t.streakFrom = { year: yr, week: w };
+    t.streak = (t.streak || 0) + 1;
+    if (t.streak >= 2) add('streak', { v: t.streak, t: id, from: t.streakFrom, key: `st:${id}:${t.streakFrom.year}:${t.streakFrom.week}` });
+  });
+  return out;
+}
+
+function addSeasonRecs(book, year, teams, players) {
+  teams.forEach(x => {
+    const e = { t: x.id, w: x.w, l: x.l, ties: x.t || 0, pf: r1(x.pf), year, key: `sT:${year}:${x.id}` };
+    pushRec(book, 'sPF', { v: r1(x.pf), ...e });
+    pushRec(book, 'sWins', { v: x.w, v2: x.pf, ...e });
+  });
+  players.forEach(x => { if (x.pts > 0) pushRec(book, 's' + x.pos, { v: r1(x.pts), pid: x.pid, name: x.name, pos: x.pos, t: x.t, gp: x.gp, year, key: `sP:${year}:${x.pid}` }); });
+}
+function liveSeason() {
+  return {
+    teams: L.teams.map(t => ({ id: t.id, w: t.w, l: t.l, t: t.t, pf: t.pf })),
+    players: Object.values(L.players).filter(p => !p.retired && p.wk && p.wk.some(x => x != null))
+      .map(p => ({ pid: p.id, name: fullName(p), pos: p.pos, t: p.teamId, pts: seasonPts(p), gp: seasonGP(p) })),
+  };
+}
+// scope 'season' (most recent season, live) or 'all' (league history incl. the current season)
+function recordBook(scope) {
+  const R = L.rec;
+  if (!R) return {};
+  const book = JSON.parse(JSON.stringify(scope === 'all' ? R.all : R.season));
+  if (R.year != null && L.results.length) {
+    const lv = liveSeason();
+    addSeasonRecs(book, R.year, lv.teams, lv.players);
+  }
+  return book;
+}
+function initRecords() {
+  L.rec = { year: null, season: {}, all: {} };
+  L.teams.forEach(t => { t.streak = 0; (t.hist || []).forEach(h => addSeasonRecs(L.rec.all, h.year, [{ id: t.id, w: h.w, l: h.l, t: h.t, pf: h.pf }], [])); });
+  const byAbbr = Object.fromEntries(L.teams.map(t => [t.abbr, t.id]));
+  Object.values(L.players).forEach(p => (p.hist || []).forEach(h => addSeasonRecs(L.rec.all, h.year, [],
+    [{ pid: p.id, name: fullName(p), pos: p.pos, t: byAbbr[h.team] != null ? byAbbr[h.team] : null, pts: h.pts, gp: h.gp }])));
+  // replay the games still on file (current / most recent season)
+  const games = (L.results || []).map((res, i) => (res || []).map(g => [g, i + 1])).flat();
+  if (games.length) {
+    L.rec.year = games[0][0].year || L.year;
+    games.forEach(([g, w]) => recordGame(g, w, g.year || L.rec.year));
+  }
 }
 
 function simWeek() {
@@ -846,7 +972,15 @@ function simWeek() {
       const hurt = p.injury && p.injury.year === L.year && p.injury.week === w ? 1 : 0;
       return [id, p.wk[w - 1], Math.round(ppg(p.ovr, p.pos, p) * 10) / 10, hurt];
     });
-    return { a, b, sa, sb, la: snap(ta), lb: snap(tb), year: L.year };
+    const g = { a, b, sa, sb, la: snap(ta), lb: snap(tb), year: L.year };
+    recordGame(g, w, L.year).forEach(([k, e]) => {
+      if (!L.history.length) return; // everything is a "record" in year one
+      const c = REC_CATS.find(c => c.k === k);
+      const who = e.pid != null ? `${e.pos} ${e.name} (${T(e.t).abbr})` : T(e.t).name;
+      const val = c.unit ? `${e.v} ${c.unit}` : `${e.v} pts`;
+      news(`📜 New league record — ${c.label}: ${who}, ${val}.`, 'big', e.t === L.userId);
+    });
+    return g;
   };
 
   if (L.phase === 'regular') {
@@ -922,6 +1056,8 @@ function endSeason() {
     user: { w: userT.w, l: userT.l, t: userT.t, pf: userT.pf, finish: finishOf(L.userId) },
   });
   L.teams.forEach(t => t.hist.push({ year: L.year, w: t.w, l: t.l, t: t.t, pf: t.pf, finish: finishOf(t.id) }));
+  const lv = liveSeason();
+  addSeasonRecs(L.rec.all, L.year, lv.teams, lv.players);
   all.forEach(p => {
     const gp = seasonGP(p);
     if (gp > 0 || p.teamId != null) p.hist.push({ year: L.year, team: p.teamId != null ? T(p.teamId).abbr : 'FA', gp, pts: seasonPts(p), ovr: p.ovr, age: p.age, st: sumStats(p.st || []) });
@@ -1180,6 +1316,7 @@ function load(json) {
   L = typeof json === 'string' ? JSON.parse(json) : json;
   if (L) { // migrate older saves
     if (!L.injuryLog) L.injuryLog = [];
+    if (!L.rec) initRecords();
     if (!L.settings.scoring) L.settings.scoring = presetScoring('half');
     Object.values(L.players).forEach(p => {
       if (!p.nfl) p.nfl = pick(NFL_ABBRS);
@@ -1197,6 +1334,7 @@ function load(json) {
 
 G.Engine = {
   C, POS, SLOTS, PCFG, DIFF, MODE, NFL, INJ_RATE,
+  REC_CATS, recordBook,
   SCORING_PRESETS, SCORING_KEYS, presetScoring, presetOf, statLine, sumStats, fpts, replLevel,
   setScoring(S) { L.settings.scoring = Object.assign(presetScoring('standard'), S); },
   get L() { return L; },
